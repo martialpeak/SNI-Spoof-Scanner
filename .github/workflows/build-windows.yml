@@ -1,0 +1,38 @@
+name: Build Windows EXE
+
+# با هر بار پوش کردن کد در شاخه اصلی، این بیلد هم خودکار اجرا می‌شود
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flet
+
+      - name: Build Windows EXE (Flet Pack)
+        # این دستور کد Flet شما را به یک فایل اجرایی ویندوز تبدیل می‌کند
+        run: flet pack main.py --name "SNI-Scanner" --noconsole
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: SNI-Scanner-Windows-EXE
+          # خروجی در پوشه dist قرار می‌گیرد
+          path: dist/*.exe
+          retention-days: 7
