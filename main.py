@@ -1,127 +1,126 @@
 import flet as ft
-import socket
-import concurrent.futures
-import re
-import threading
-
-PORTS = [443, 2053, 2083, 2087, 2096, 8443]
-
-def is_ipv4(address): 
-    return re.match(r"^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$", address) is not None
-
-def resolve_domain(domain):
-    try: return socket.gethostbyname_ex(domain)[2]
-    except socket.error: return []
-
-def check_port(ip, port):
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(1.2)
-            return (port, s.connect_ex((ip, port)) == 0)
-    except: return (port, False)
-
-def scan_target_ports(ip):
-    results = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(PORTS)) as executor:
-        futures = {executor.submit(check_port, ip, port): port for port in PORTS}
-        for future in concurrent.futures.as_completed(futures):
-            port, is_open = future.result()
-            results[port] = is_open
-    return results
+import traceback
 
 def main(page: ft.Page):
-    page.title = "SNI Scanner"
-    page.theme_mode = ft.ThemeMode.DARK 
-    page.padding = 15
+    # تنظیمات مخصوص موبایل
+    page.title = "SNI Scanner Mobile"
+    page.theme_mode = ft.ThemeMode.DARK
+    page.padding = 20
+    page.scroll = "adaptive" # فعال‌سازی اسکرول با دست در اندروید
 
-    title = ft.Text("SNI Scanner Pro", size=26, weight=ft.FontWeight.BOLD, color=ft.colors.BLUE_200)
+    # هدر برنامه
+    title = ft.Text("📱 SNI Scanner Android", size=22, weight=ft.FontWeight.BOLD, color=ft.colors.BLUE_400)
     
+    # باکس ورودی
     txt_input = ft.TextField(
-        multiline=True, 
-        min_lines=6, 
-        max_lines=6, 
-        hint_text="Enter IPs or Domains (one per line)...\nExample:\n104.19.229.21\nexample.com",
-        border_color=ft.colors.BLUE_400
+        multiline=True,
+        min_lines=4,
+        max_lines=5,
+        hint_text="دامنه‌ها یا آی‌پی‌ها را وارد کنید...",
+        border_color=ft.colors.BLUE_200,
+        text_align=ft.TextAlign.LEFT
     )
     
-    lbl_status = ft.Text("Status: Ready", color=ft.colors.CYAN_200)
-    lv_results = ft.ListView(expand=True, spacing=5, auto_scroll=True)
+    lbl_status = ft.Text("وضعیت: آماده به کار 🟢", color=ft.colors.GREY_400)
+    lv_results = ft.ListView(expand=True, spacing=10, auto_scroll=True)
 
-    def append_result(text, text_color=ft.colors.WHITE):
-        lv_results.controls.append(ft.Text(text, color=text_color, selectable=True))
+    def log_message(msg, text_color=ft.colors.WHITE):
+        lv_results.controls.append(ft.Text(msg, color=text_color, selectable=True))
         page.update()
 
-    def run_scan_logic(targets):
-        ok_list, fail_list, resolve_fail_list = [], [], []
+    def run_scan(targets):
+        try:
+            # 💡 ترفند اصلی اندروید: لود کردن کتابخانه‌های شبکه دقیقا اینجا (بعد از لود شدن گرافیک)
+            import socket
+            import concurrent.futures
+            import re
 
-        for target in targets:
-            ips = [target] if is_ipv4(target) else resolve_domain(target)
-            if not ips:
-                resolve_fail_list.append(target)
-                continue
+            PORTS = [443, 2053, 2083, 2087, 2096, 8443]
 
-            for ip in ips:
-                port_results = scan_target_ports(ip)
-                result_str = ""
-                open_found = False
-                for port in sorted(port_results.keys()):
-                    if port_results[port]:
-                        result_str += f" {port}✔"
-                        open_found = True
+            def check_port(ip, port):
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        s.settimeout(1.5) # تایم‌اوت کمی بیشتر برای اینترنت موبایل
+                        return (port, s.connect_ex((ip, port)) == 0)
+                except:
+                    return (port, False)
+
+            ok_count = 0
+            for target in targets:
+                ips = [target] if re.match(r"^[0-9.]+$", target) else []
+                if not ips:
+                    try:
+                        ips = socket.gethostbyname_ex(target)[2]
+                    except:
+                        log_message(f"❌ {target} -> کشف نشد", ft.colors.RED_400)
+                        continue
+
+                for ip in ips:
+                    # استفاده از ThreadPool سبک‌تر برای فشار نیامدن به پردازنده گوشی
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+                        futures = {ex.submit(check_port, ip, p): p for p in PORTS}
+                        results = []
+                        for f in concurrent.futures.as_completed(futures):
+                            p, is_open = f.result()
+                            results.append((p, is_open))
+                    
+                    # مرتب‌سازی پورت‌ها و ساخت متن خروجی
+                    results.sort(key=lambda x: x[0])
+                    res_str = " ".join([f"{p}{'✔️' if o else '❌'}" for p, o in results])
+                    
+                    line = f"🌐 {target}\n↳ {ip} | {res_str}"
+                    if any(o for p, o in results):
+                        log_message(line, ft.colors.GREEN_400)
+                        ok_count += 1
                     else:
-                        result_str += f" {port}✖"
-                
-                output_line = f"{target} -> {ip} ->{result_str}"
-                if open_found: ok_list.append(output_line)
-                else: fail_list.append(output_line)
+                        log_message(line, ft.colors.RED_400)
 
-        lv_results.controls.clear()
-        
-        if ok_list:
-            append_result("=== OK (Clean IPs) ===", ft.colors.GREEN_400)
-            for item in ok_list: append_result(item)
-        
-        if fail_list:
-            append_result("\n=== FAIL (Closed) ===", ft.colors.RED_400)
-            for item in fail_list: append_result(item)
-        
-        if resolve_fail_list:
-            append_result("\n=== RESOLVE FAILED ===", ft.colors.ORANGE_400)
-            for item in resolve_fail_list: append_result(item)
+            lbl_status.value = f"✅ اسکن تمام شد. ({ok_count} آی‌پی تمیز)"
+            lbl_status.color = ft.colors.GREEN_400
+            btn_scan.disabled = False
+            page.update()
 
-        lbl_status.value = f"Status: Scan Completed! ({len(ok_list)} found)"
-        lbl_status.color = ft.colors.GREEN_400
-        btn_scan.disabled = False
-        page.update()
+        except Exception as e:
+            # اگر خطایی رخ دهد، روی صفحه گوشی چاپ می‌شود تا صفحه سیاه نماند!
+            log_message(f"SYSTEM ERROR:\n{str(e)}\n{traceback.format_exc()}", ft.colors.RED_ACCENT)
+            lbl_status.value = "❌ خطا در اجرای اسکن"
+            btn_scan.disabled = False
+            page.update()
 
-    def on_start_scan(e):
-        # دریافت لیست و حذف موارد تکراری قبل از اسکن
+    def start_click(e):
+        # حذف تکراری‌ها و فاصله‌ها
         raw_lines = txt_input.value.splitlines()
-        cleaned_lines = [t.strip() for t in raw_lines if t.strip()]
-        targets = list(dict.fromkeys(cleaned_lines))
+        targets = list(dict.fromkeys([t.strip() for t in raw_lines if t.strip()]))
         
         if not targets:
-            page.snack_bar = ft.SnackBar(ft.Text("Please enter at least one target!"), bgcolor=ft.colors.RED_900)
+            page.snack_bar = ft.SnackBar(ft.Text("لیست خالی است! لطفا تارگت وارد کنید."))
             page.snack_bar.open = True
             page.update()
             return
 
         btn_scan.disabled = True
         lv_results.controls.clear()
-        lbl_status.value = "Status: Scanning concurrently..."
-        lbl_status.color = ft.colors.RED_400
+        lbl_status.value = "🔍 در حال اسکن شبکه (کمی صبر کنید)..."
+        lbl_status.color = ft.colors.ORANGE_400
         page.update()
 
-        threading.Thread(target=run_scan_logic, args=(targets,), daemon=True).start()
+        # اجرای اسکن در پس‌زمینه اندروید
+        import threading
+        threading.Thread(target=run_scan, args=(targets,), daemon=True).start()
 
     btn_scan = ft.ElevatedButton(
-        text="▶ Start Fast Scan", 
-        on_click=on_start_scan, 
+        text="🚀 شروع اسکن در گوشی", 
+        on_click=start_click, 
         bgcolor=ft.colors.BLUE_700, 
         color=ft.colors.WHITE,
         height=50
     )
 
+    # چیدمان عناصر روی صفحه موبایل
     page.add(title, txt_input, btn_scan, lbl_status, ft.Divider(), lv_results)
 
-ft.app(target=main)
+# اجرای امن برنامه
+try:
+    ft.app(target=main)
+except Exception as main_e:
+    print(f"CRITICAL BOOT ERROR: {main_e}")
