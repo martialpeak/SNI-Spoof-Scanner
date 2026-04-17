@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -23,7 +22,7 @@ class SNIScannerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SNI Scanner Hybrid Pro',
+      title: 'SNI Scanner Ultimate',
       theme: ThemeData.dark().copyWith(
         primaryColor: Colors.blue,
         scaffoldBackgroundColor: const Color(0xFF121212),
@@ -58,8 +57,8 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
   String _statusMessage = "وضعیت: آماده به کار 🟢";
   Color _statusColor = Colors.grey;
   
-  // اسکرول کنترلر برای هدایت خودکار لیست به پایین
   final ScrollController _scrollController = ScrollController();
+  final Map<String, String> _ispCache = {};
 
   final Map<String, List<String>> _offlineProviders = {
     '☁️ Cloudflare': ['173.245.0.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22'],
@@ -89,44 +88,58 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
   }
 
   Future<String> getProviderHybrid(String ip) async {
+    if (_ispCache.containsKey(ip)) return _ispCache[ip]!;
+
     int targetIp = ipToInt(ip);
     for (var provider in _offlineProviders.entries) {
       for (var cidr in provider.value) {
-        if (inCidr(targetIp, cidr)) return provider.key;
+        if (inCidr(targetIp, cidr)) {
+          _ispCache[ip] = provider.key;
+          return provider.key;
+        }
       }
     }
 
-    // 🌟 سپر ضد-گیر: پیچیدن کل پروسه آنلاین در یک تایم‌اوت مطلق
     try {
-      return await Future.microtask(() async {
-        final request = await HttpClient().getUrl(Uri.parse('https://api.iplocation.net/?ip=$ip'));
-        final response = await request.close().timeout(const Duration(seconds: 2));
+      final client = HttpClient();
+      client.connectionTimeout = const Duration(seconds: 2);
+      
+      final request = await client.getUrl(Uri.parse('http://$ip')).timeout(const Duration(seconds: 2));
+      final response = await request.close().timeout(const Duration(seconds: 2));
+      
+      String server = response.headers.value('server')?.toLowerCase() ?? '';
+      
+      if (server.isNotEmpty) {
+        String res = '';
+        if (server.contains('cloudflare')) res = '☁️ Cloudflare';
+        else if (server.contains('arvan')) res = '☁️ ArvanCloud';
+        else if (server.contains('amazon') || server.contains('cloudfront')) res = '📦 Amazon/AWS';
+        else if (server.contains('fastly')) res = '⚡ Fastly';
+        else res = '⚙️ سرور: ${server.length > 10 ? server.substring(0, 10) : server}';
         
-        if (response.statusCode == 200) {
-          final responseBody = await response.transform(utf8.decoder).join();
-          final data = jsonDecode(responseBody);
-          String isp = data['isp']?.toString().trim() ?? '';
-          
-          if (isp.isEmpty) return '❓ نامشخص';
-          
-          String ispLower = isp.toLowerCase();
-          if (ispLower.contains('cloudflare')) return '☁️ Cloudflare';
-          if (ispLower.contains('amazon') || ispLower.contains('cloudfront')) return '📦 Amazon/AWS';
-          if (ispLower.contains('fastly')) return '⚡ Fastly';
-          if (ispLower.contains('arvan')) return '☁️ ArvanCloud';
-          if (ispLower.contains('google')) return '🌐 Google';
-          if (ispLower.contains('digitalocean')) return '💧 DigitalOcean';
-          if (ispLower.contains('microsoft') || ispLower.contains('azure')) return '🪟 Azure';
-          if (ispLower.contains('hetzner')) return '🔴 Hetzner';
-          if (ispLower.contains('ovh')) return '🟣 OVH';
-          
-          return '🏢 ${isp.length > 15 ? isp.substring(0, 15) : isp}';
+        if (res.isNotEmpty) {
+          _ispCache[ip] = res;
+          return res;
         }
-        return '❓ نامشخص';
-      }).timeout(const Duration(seconds: 3), onTimeout: () => '❓ نامشخص'); // اگر دی‌ان‌اس گیر کرد، قطع شود
-    } catch (e) {
-      return '❓ نامشخص';
-    }
+      }
+    } catch (e) {}
+
+    try {
+      final lookup = await InternetAddress(ip).reverse().timeout(const Duration(seconds: 2));
+      String host = lookup.host.toLowerCase();
+      
+      String res = '❓ نامشخص';
+      if (host.contains('cloudflare')) res = '☁️ Cloudflare';
+      else if (host.contains('amazonaws') || host.contains('cloudfront')) res = '📦 Amazon/AWS';
+      else if (host.contains('google')) res = '🌐 Google';
+      else if (host.contains('arvan')) res = '☁️ ArvanCloud';
+      
+      _ispCache[ip] = res;
+      return res;
+    } catch (e) {}
+
+    _ispCache[ip] = '❓ نامشخص';
+    return '❓ نامشخص';
   }
 
   void _playSuccessAlert() {
@@ -175,9 +188,8 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
 
   Future<MapEntry<int, bool>> checkPort(String ip, int port) async {
     try {
-      // 🌟 افزایش تایم‌اوت سوکت به ۳ ثانیه برای دقت بیشتر روی موبایل
       final socket = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 3000));
-      socket.destroy(); // جلوگیری از نشت حافظه (Memory Leak)
+      socket.destroy();
       return MapEntry(port, true);
     } catch (e) { return MapEntry(port, false); }
   }
@@ -186,12 +198,8 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
     if (!mounted) return;
     setState(() { 
       _results.add(ScanLog(msg, color)); 
-      // برای جلوگیری از پر شدن حافظه، حداکثر ۵۰۰ لاگ آخر را نگه می‌داریم
-      if (_results.length > 500) {
-        _results.removeAt(0);
-      }
+      if (_results.length > 500) _results.removeAt(0);
     });
-    // اسکرول خودکار به پایین
     Future.delayed(const Duration(milliseconds: 50), () {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
@@ -205,7 +213,6 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
       ips = [target];
     } else {
       try {
-        // تایم‌اوت مطلق برای پیدا کردن IP دامنه
         final lookup = await InternetAddress.lookup(target).timeout(const Duration(seconds: 3));
         ips = lookup.map((e) => e.address).toList();
       } catch (e) {
@@ -237,15 +244,12 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
 
   Future<void> runScan(List<String> targets) async {
     _cleanIps.clear();
-    const int chunkSize = 5; // فشار کمتر به مودم موبایل
+    const int chunkSize = 5; 
     
     for (int i = 0; i < targets.length; i += chunkSize) {
       if (!mounted || !_isScanning) break; 
       final end = (i + chunkSize < targets.length) ? i + chunkSize : targets.length;
-      
       await Future.wait(targets.sublist(i, end).map((t) => processTarget(t)));
-      
-      // 🌟 تنفس طلایی: جلوگیری از فریز شدن صفحه و خفگی کارت شبکه
       await Future.delayed(const Duration(milliseconds: 300));
     }
 
@@ -288,7 +292,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text("📱 SNI Scanner Hybrid Anti-Freeze", style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: Colors.blue), textAlign: TextAlign.center),
+              const Text("📱 SNI Scanner Ultimate", style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: Colors.blue), textAlign: TextAlign.center),
               const SizedBox(height: 15),
               
               Row(
