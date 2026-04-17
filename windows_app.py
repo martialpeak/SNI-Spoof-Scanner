@@ -35,7 +35,7 @@ class SNI_Scanner_vFinal:
         }
         
         self.ok_data = [] 
-        self.isp_cache = {} # حافظه کش برای سرعت فضایی
+        self.isp_cache = {}
         
         self.setup_ui()
         self.setup_shortcuts()
@@ -102,4 +102,163 @@ class SNI_Scanner_vFinal:
         self.btn_scan = tk.Button(container, text="🚀 شروع اسکن هوشمند", command=self.start_scan,
                                 bg=self.colors["accent"], fg="white", font=("Segoe UI", 11, "bold"),
                                 relief="flat", pady=10, cursor="hand2")
-        self.
+        self.btn_scan.pack(side="top", fill="x", pady=5)
+
+        tk.Label(container, text="📊 گزارش اسکن:", bg=self.colors["bg"], fg="white", font=("Tahoma", 10)).pack(side="top", anchor="e")
+        
+        self.txt_output = scrolledtext.ScrolledText(container, bg="black", font=("Consolas", 10), borderwidth=0, padx=5, pady=5)
+        self.txt_output.pack(side="top", fill="both", expand=True, pady=5)
+
+    def play_sound(self):
+        try: winsound.Beep(500, 200); winsound.Beep(800, 250)
+        except: pass
+
+    def load_file(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")])
+        if file_path:
+            with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                self.txt_input.delete("1.0", tk.END)
+                self.txt_input.insert(tk.END, f.read())
+
+    def load_default_cdns(self):
+        sample = "104.16.1.1\n151.101.1.1\n13.32.1.1\n185.143.232.1\n8.8.8.8"
+        self.txt_input.delete("1.0", tk.END)
+        self.txt_input.insert(tk.END, sample)
+
+    def get_provider_hybrid(self, ip_str):
+        if ip_str in self.isp_cache:
+            return self.isp_cache[ip_str]
+
+        try:
+            target_ip = ipaddress.ip_address(ip_str)
+            for provider, networks in OFFLINE_PROVIDERS.items():
+                for net in networks:
+                    if target_ip in net:
+                        self.isp_cache[ip_str] = provider
+                        return provider
+        except: pass
+        
+        try:
+            req = urllib.request.Request(f"http://{ip_str}", headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=2.0) as response:
+                server = response.headers.get('Server', '').lower()
+        except urllib.error.HTTPError as e:
+            server = e.headers.get('Server', '').lower() if hasattr(e, 'headers') else ''
+        except:
+            server = ''
+            
+        if server:
+            if 'cloudflare' in server: res = '☁️ Cloudflare'
+            elif 'arvan' in server: res = '☁️ ArvanCloud'
+            elif 'cloudfront' in server or 'amazon' in server: res = '📦 Amazon/AWS'
+            elif 'fastly' in server: res = '⚡ Fastly'
+            else: res = f"⚙️ {server.capitalize()[:15]}"
+            
+            self.isp_cache[ip_str] = res
+            return res
+
+        try:
+            host = socket.gethostbyaddr(ip_str)[0].lower()
+            if 'cloudflare' in host: res = '☁️ Cloudflare'
+            elif 'amazonaws' in host or 'cloudfront' in host: res = '📦 Amazon/AWS'
+            elif 'google' in host: res = '🌐 Google'
+            elif 'arvan' in host: res = '☁️ ArvanCloud'
+            else: res = '❓ نامشخص'
+            
+            self.isp_cache[ip_str] = res
+            return res
+        except:
+            pass
+
+        self.isp_cache[ip_str] = '❓ نامشخص'
+        return '❓ نامشخص'
+
+    def start_scan(self):
+        raw_lines = self.txt_input.get("1.0", tk.END).splitlines()
+        cleaned_lines = [t.strip() for t in raw_lines if t.strip()]
+        targets = list(dict.fromkeys(cleaned_lines))
+
+        if not targets: return
+        
+        self.ok_data = []
+        self.btn_scan.config(state="disabled", text="⌛ در حال اسکن دقیق...")
+        self.txt_output.delete("1.0", tk.END)
+        threading.Thread(target=self.run_logic, args=(targets,), daemon=True).start()
+
+    def process_target(self, target):
+        ips = []
+        try:
+            ipaddress.ip_address(target)
+            ips = [target]
+        except ValueError:
+            try:
+                ips = socket.gethostbyname_ex(target)[2]
+            except:
+                self.root.after(0, lambda: self.print_log(f"❌ {target.ljust(20)} | کشف نشد", "red"))
+                return
+
+        for ip in ips:
+            def check(p):
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        s.settimeout(2.0); return (p, s.connect_ex((ip, p)) == 0)
+                except: return (p, False)
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(PORTS)) as ex:
+                results = list(ex.map(check, PORTS))
+            
+            res_str = " ".join([f"{p}{'✔️' if o else '❌'}" for p, o in sorted(results)])
+            is_clean = any(o for p, o in results)
+
+            if is_clean:
+                provider = self.get_provider_hybrid(ip)
+                line = f"🌐 {target.ljust(18)[:18]} | {ip.ljust(15)} | {provider.ljust(16)} | {res_str}"
+                
+                if target == ip:
+                    self.ok_data.append(f"{ip}\t# {provider}")
+                else:
+                    self.ok_data.append(f"{ip}\t# {provider}  [🌐 {target}]")
+                    
+                self.root.after(0, lambda l=line: self.print_log(l, "green"))
+            else:
+                line = f"🌐 {target.ljust(18)[:18]} | {ip.ljust(15)} | ❓ {'مسدود'.ljust(10)} | {res_str}"
+                self.root.after(0, lambda l=line: self.print_log(l, "red"))
+
+    def run_logic(self, targets):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            executor.map(self.process_target, targets)
+        self.root.after(0, self.finish)
+
+    def print_log(self, text, tag):
+        color = self.colors["success"] if tag == "green" else self.colors["fail"]
+        self.txt_output.tag_config(tag, foreground=color)
+        self.txt_output.insert(tk.END, text + "\n", tag)
+        self.txt_output.see(tk.END)
+
+    def finish(self):
+        self.btn_scan.config(state="normal", text="🚀 شروع اسکن هوشمند")
+        self.status.config(text=f"✅ اسکن پایان یافت. {len(self.ok_data)} آی‌پی تمیز پیدا شد.")
+        self.play_sound()
+
+    def copy_results(self):
+        if not self.ok_data:
+            messagebox.showinfo("خالی", "آی‌پی تمیزی برای کپی وجود ندارد.")
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append("\n".join(self.ok_data))
+        messagebox.showinfo("کپی شد", f"{len(self.ok_data)} نتیجه به همراه نام دامنه در کلیپ‌بورد ذخیره شد.")
+
+    def save_results(self):
+        if not self.ok_data:
+            messagebox.showinfo("خالی", "آی‌پی تمیزی برای ذخیره وجود ندارد.")
+            return
+        f = filedialog.asksaveasfilename(defaultextension=".txt", initialfile="Clean_IPs.txt")
+        if f:
+            with open(f, "w", encoding="utf-8") as file:
+                file.write("=== SNI Clean IPs ===\n\n" + "\n".join(self.ok_data))
+            messagebox.showinfo("ذخیره شد", "فایل با موفقیت ذخیره شد.")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = SNI_Scanner_vFinal(root)
+    root.mainloop()
