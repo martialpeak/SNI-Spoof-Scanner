@@ -1,37 +1,53 @@
-import flet as ft
-import socket
-import concurrent.futures
-import re
-import threading
-import traceback  # اضافه شده برای شکار ارورها
+import sys
+import os
+import traceback
 
-PORTS = [443, 2053, 2083, 2087, 2096, 8443]
+# ---------- THE LOGGER ----------
+# این بخش باعث می‌شود تمام ارورهای مخفی سیستم داخل یک فایل متنی ذخیره شوند
+try:
+    log_path = os.path.join(os.getcwd(), "flet_crash_log.txt")
+    log_file = open(log_path, "w", encoding="utf-8")
+    sys.stdout = log_file
+    sys.stderr = log_file
+    print("--- SNI SCANNER BOOT LOG ---")
+except:
+    pass
+# --------------------------------
 
-def is_ipv4(address): return re.match(r"^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$", address) is not None
+try:
+    import flet as ft
+    import socket
+    import concurrent.futures
+    import re
+    import threading
+    print("Modules imported successfully.")
 
-def resolve_domain(domain):
-    try: return socket.gethostbyname_ex(domain)[2]
-    except socket.error: return []
+    PORTS = [443, 2053, 2083, 2087, 2096, 8443]
 
-def check_port(ip, port):
-    try:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(1.0)
-            return (port, s.connect_ex((ip, port)) == 0)
-    except: return (port, False)
+    def is_ipv4(address): return re.match(r"^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$", address) is not None
 
-def scan_target_ports(ip):
-    results = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(PORTS)) as executor:
-        futures = {executor.submit(check_port, ip, port): port for port in PORTS}
-        for future in concurrent.futures.as_completed(futures):
-            port, is_open = future.result()
-            results[port] = is_open
-    return results
+    def resolve_domain(domain):
+        try: return socket.gethostbyname_ex(domain)[2]
+        except socket.error: return []
 
-def main(page: ft.Page):
-    try:
-        # تمام منطق رابط کاربری را داخل Try گذاشتیم
+    def check_port(ip, port):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1.0)
+                return (port, s.connect_ex((ip, port)) == 0)
+        except: return (port, False)
+
+    def scan_target_ports(ip):
+        results = {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(PORTS)) as executor:
+            futures = {executor.submit(check_port, ip, port): port for port in PORTS}
+            for future in concurrent.futures.as_completed(futures):
+                port, is_open = future.result()
+                results[port] = is_open
+        return results
+
+    def main(page: ft.Page):
+        print("UI Initialization started.")
         page.title = "SNI Scanner"
         page.theme_mode = ft.ThemeMode.DARK 
         page.padding = 15
@@ -47,7 +63,6 @@ def main(page: ft.Page):
         )
         
         lbl_status = ft.Text("Status: Ready", color=ft.colors.CYAN_200)
-        
         lv_results = ft.ListView(expand=True, spacing=5, auto_scroll=True)
 
         def append_result(text, text_color=ft.colors.WHITE):
@@ -118,21 +133,14 @@ def main(page: ft.Page):
             height=50
         )
 
-        page.add(
-            title,
-            txt_input,
-            btn_scan,
-            lbl_status,
-            ft.Divider(),
-            lv_results
-        )
-        
+        page.add(title, txt_input, btn_scan, lbl_status, ft.Divider(), lv_results)
+        print("UI Initialization finished. Rendering...")
         page.update()
 
-    except Exception as e:
-        # اگر خطایی رخ داد، صفحه سیاه نمی‌شود بلکه متن قرمز ارور نمایش داده می‌شود
-        error_msg = f"Crash Error Detected:\n\n{str(e)}\n\n{traceback.format_exc()}"
-        page.add(ft.Text(error_msg, color=ft.colors.RED_400, selectable=True))
-        page.update()
+    print("Calling Flet app...")
+    ft.app(target=main)
 
-ft.app(target=main)
+except Exception as e:
+    print("\n--- CRITICAL CRASH ENCOUNTERED ---")
+    traceback.print_exc()
+    sys.exit(1)
