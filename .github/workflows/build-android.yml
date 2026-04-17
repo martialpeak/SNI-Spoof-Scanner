@@ -25,17 +25,20 @@ jobs:
           channel: 'stable'
 
       - name: Create Flutter Project
-        # اینجا گیت‌هاب خودش پوشه‌ها و فایل‌های لازم مثل pubspec.yaml را می‌سازد
         run: flutter create mobile_app --org "com.seramo.sniscanner"
 
+      - name: Install Advanced Packages
+        working-directory: ./mobile_app
+        # نصب پکیج‌های فایل منیجر و ذخیره‌سازی
+        run: flutter pub add file_picker share_plus
+
       - name: Inject Your Custom Code
-        # این دستور، فایل main.dart شما را می‌برد داخل پوشه lib قرار می‌دهد
         run: cp main.dart mobile_app/lib/main.dart
 
-      - name: Add Android Internet Permission
-        # اپلیکیشن‌های اندروید برای اسکن نیاز به دسترسی اینترنت دارند
+      - name: Add Android Permissions
+        # دادن دسترسی‌های اینترنت، فایل و ویبره به اندروید
         run: |
-          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' mobile_app/android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>\n    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>\n    <uses-permission android:name="android.permission.VIBRATE"/>' mobile_app/android/app/src/main/AndroidManifest.xml
 
       - name: Build Android APK
         working-directory: ./mobile_app
@@ -44,5 +47,5 @@ jobs:
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SNI-Scanner-Android-APK
+          name: SNI-Scanner-Pro-APK
           path: mobile_app/build/app/outputs/flutter-apk/app-release.apk
