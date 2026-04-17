@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+import 'dart:convert'; // اضافه شده برای API آنلاین
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -22,7 +23,7 @@ class SNIScannerApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SNI Scanner Offline Pro',
+      title: 'SNI Scanner Hybrid Pro',
       theme: ThemeData.dark().copyWith(
         primaryColor: Colors.blue,
         scaffoldBackgroundColor: const Color(0xFF121212),
@@ -57,7 +58,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
   String _statusMessage = "وضعیت: آماده به کار 🟢";
   Color _statusColor = Colors.grey;
 
-  // دیتابیس آفلاین آی‌پی‌ها
+  // دیتابیس آفلاین آی‌پی‌ها برای سرعت لحظه‌ای
   final Map<String, List<String>> _offlineProviders = {
     '☁️ Cloudflare': ['173.245.0.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22'],
     '⚡ Fastly': ['151.101.0.0/16', '199.232.0.0/16', '146.75.0.0/16', '199.27.72.0/21'],
@@ -85,17 +86,47 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
     } catch (e) { return false; }
   }
 
-  String getOfflineProvider(String ip) {
+  // موتور ترکیبی (Hybrid) برای تشخیص قطعی نام شرکت
+  Future<String> getProviderHybrid(String ip) async {
+    // مرحله اول: استعلام آفلاین (بدون قطعی و پرسرعت)
     int targetIp = ipToInt(ip);
     for (var provider in _offlineProviders.entries) {
       for (var cidr in provider.value) {
         if (inCidr(targetIp, cidr)) return provider.key;
       }
     }
+
+    // مرحله دوم: استعلام آنلاین به عنوان پشتیبان
+    try {
+      final request = await HttpClient().getUrl(Uri.parse('https://api.iplocation.net/?ip=$ip'));
+      final response = await request.close().timeout(const Duration(seconds: 2));
+      
+      if (response.statusCode == 200) {
+        final responseBody = await response.transform(utf8.decoder).join();
+        final data = jsonDecode(responseBody);
+        String isp = data['isp']?.toString().trim() ?? '';
+        
+        if (isp.isEmpty) return '❓ نامشخص';
+        
+        String ispLower = isp.toLowerCase();
+        if (ispLower.contains('cloudflare')) return '☁️ Cloudflare';
+        if (ispLower.contains('amazon') || ispLower.contains('cloudfront')) return '📦 Amazon/AWS';
+        if (ispLower.contains('fastly')) return '⚡ Fastly';
+        if (ispLower.contains('arvan')) return '☁️ ArvanCloud';
+        if (ispLower.contains('google')) return '🌐 Google';
+        if (ispLower.contains('digitalocean')) return '💧 DigitalOcean';
+        if (ispLower.contains('microsoft') || ispLower.contains('azure')) return '🪟 Azure';
+        if (ispLower.contains('hetzner')) return '🔴 Hetzner';
+        if (ispLower.contains('ovh')) return '🟣 OVH';
+        
+        return '🏢 ${isp.length > 15 ? isp.substring(0, 15) : isp}';
+      }
+    } catch (e) {
+      // در صورت فیلتر بودن یا قطعی اینترنت
+    }
     return '❓ نامشخص';
   }
 
-  // پخش صدا و ویبره هنگام اتمام کار
   void _playSuccessAlert() {
     SystemSound.play(SystemSoundType.click);
     HapticFeedback.heavyImpact();
@@ -105,18 +136,13 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
     });
   }
 
-  // بارگذاری آی‌پی‌ها از فایل متنی
   Future<void> _loadFile() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom, allowedExtensions: ['txt', 'csv'],
-      );
+      FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['txt', 'csv']);
       if (result != null && result.files.single.path != null) {
         File file = File(result.files.single.path!);
         String contents = await file.readAsString();
-        setState(() {
-          _inputController.text = contents;
-        });
+        setState(() { _inputController.text = contents; });
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("✅ فایل با موفقیت بارگذاری شد"), backgroundColor: Colors.green));
       }
     } catch (e) {
@@ -124,7 +150,6 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
     }
   }
 
-  // ذخیره لیست در فایل و اشتراک‌گذاری
   Future<void> _saveToFile() async {
     if (_cleanIps.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("آی‌پی تمیزی برای ذخیره وجود ندارد!")));
@@ -135,20 +160,15 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
       final directory = Directory.systemTemp;
       final file = File('${directory.path}/Clean_IPs.txt');
       await file.writeAsString(fileText);
-      
-      // باز کردن منوی سیو/شیر اندروید
       await Share.shareXFiles([XFile(file.path)], text: 'لیست آی‌پی‌های تمیز');
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("خطا در ذخیره فایل")));
     }
   }
 
-  // تزریق لیست نمونه برای تست کاربران
   void _loadDefaultCDNs() {
     const String sampleData = "104.16.1.1\n151.101.1.1\n13.32.1.1\n185.143.232.1\n8.8.8.8";
-    setState(() {
-      _inputController.text = sampleData;
-    });
+    setState(() { _inputController.text = sampleData; });
   }
 
   Future<MapEntry<int, bool>> checkPort(String ip, int port) async {
@@ -185,18 +205,26 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
       String resStr = results.map((e) => "${e.key}${e.value ? '✔️' : '❌'}").join(" ");
       
       if (results.any((e) => e.value)) {
-        String provider = getOfflineProvider(ip);
+        // گرفتن نام شرکت به صورت هیبریدی (دقیق)
+        String provider = await getProviderHybrid(ip);
         _logMessage("🌐 $target\n↳ $ip | $provider | $resStr", Colors.greenAccent);
-        _cleanIps.add("$ip\t# $provider"); 
+        
+        // فرمت شیک برای کپی همراه با دامنه
+        if (target == ip) {
+          _cleanIps.add("$ip\t# $provider");
+        } else {
+          _cleanIps.add("$ip\t# $provider  [🌐 $target]");
+        }
       } else {
-        _logMessage("🌐 $target\n↳ $ip | $resStr", Colors.redAccent);
+        _logMessage("🌐 $target\n↳ $ip | ❓ مسدود | $resStr", Colors.redAccent);
       }
     }
   }
 
   Future<void> runScan(List<String> targets) async {
     _cleanIps.clear();
-    const int chunkSize = 10;
+    // کاهش فشار روی شبکه اندروید با تنظیم 8 آی‌پی همزمان
+    const int chunkSize = 8; 
     
     for (int i = 0; i < targets.length; i += chunkSize) {
       if (!mounted || !_isScanning) break; 
@@ -211,7 +239,6 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
       _isScanning = false;
     });
     
-    // پخش صدا و لرزش پایان کار
     _playSuccessAlert();
   }
 
@@ -224,7 +251,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
     }
     setState(() {
       _isScanning = true; _results.clear(); _cleanIps.clear();
-      _statusMessage = "🔍 در حال اسکن شبکه..."; _statusColor = Colors.orange;
+      _statusMessage = "🔍 در حال اسکن دقیق شبکه..."; _statusColor = Colors.orange;
     });
     runScan(targets);
   }
@@ -232,7 +259,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
   void _copyCleanIps() {
     if (_cleanIps.isEmpty) return;
     Clipboard.setData(ClipboardData(text: _cleanIps.join('\n')));
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${_cleanIps.length} آی‌پی تمیز کپی شد ✅"), backgroundColor: Colors.green.shade700));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${_cleanIps.length} نتیجه (همراه با دامنه) کپی شد ✅"), backgroundColor: Colors.green.shade700));
   }
 
   @override
@@ -244,10 +271,9 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text("📱 SNI Scanner Pro Ultimate", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.blue), textAlign: TextAlign.center),
+              const Text("📱 SNI Scanner Hybrid Pro", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.blue), textAlign: TextAlign.center),
               const SizedBox(height: 15),
               
-              // دکمه‌های بارگذاری
               Row(
                 children: [
                   Expanded(
@@ -287,18 +313,17 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
                 style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
                 child: _isScanning 
                   ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Text("🚀 شروع اسکن هوشمند", style: TextStyle(fontSize: 16)),
+                  : const Text("🚀 شروع اسکن هوشمند (ترکیبی)", style: TextStyle(fontSize: 16)),
               ),
               const SizedBox(height: 8),
               
-              // دکمه‌های کپی و ذخیره خروجی
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: _isScanning ? null : _copyCleanIps,
                       icon: const Icon(Icons.copy, color: Colors.greenAccent, size: 18),
-                      label: const Text("کپی", style: TextStyle(color: Colors.greenAccent)),
+                      label: const Text("کپی کامل (با دامنه)", style: TextStyle(color: Colors.greenAccent)),
                       style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.greenAccent)),
                     ),
                   ),
