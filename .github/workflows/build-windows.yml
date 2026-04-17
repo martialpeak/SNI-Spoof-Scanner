@@ -19,7 +19,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      # این مرحله اضافه شد تا فلاتر نصب شود و Flet دیگر منتظر تایید (y/n) نماند
+      # نصب فلاتر برای جلوگیری از توقف پروسه و درخواست y/n
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -35,6 +35,8 @@ jobs:
           pip install flet
 
       - name: Build Windows App (Native Flutter)
+        # استفاده از bash برای حل قطعی مشکل یونیکد در سرورهای مایکروسافت
+        shell: bash
         env:
           PYTHONIOENCODING: utf-8
           PYTHONUTF8: 1
