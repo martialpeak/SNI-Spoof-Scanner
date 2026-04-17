@@ -1,9 +1,7 @@
-name: Build Windows App
+name: Build Windows Pro App
 
 on:
   push:
-    branches: [ "main", "master" ]
-  pull_request:
     branches: [ "main", "master" ]
 
 jobs:
@@ -20,19 +18,16 @@ jobs:
           python-version: '3.11'
 
       - name: Install Dependencies
-        # نصب پای‌اینستالر برای بیلد گرفتن
         run: |
           python -m pip install --upgrade pip
           pip install pyinstaller
 
       - name: Build Windows EXE
-        # این دستور فایل windows_app.py را به یک فایل اجرایی تمیز تبدیل می‌کند
-        run: pyinstaller --noconsole --onefile windows_app.py
+        # ایجاد یک فایل تک‌فایله و بدون باز شدن پنجره CMD
+        run: pyinstaller --noconsole --onefile --name "SNI-Scanner-Pro" windows_app.py
 
-      - name: Upload Windows Artifact
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SNI-Scanner-Windows-EXE
-          # خروجی در پوشه dist ذخیره می‌شود
+          name: SNI-Scanner-Pro-Windows
           path: dist/*.exe
-          retention-days: 7
