@@ -1,12 +1,17 @@
 import flet as ft
 import traceback
+# انتقال تمام ایمپورت‌ها به بالای صفحه برای شناسایی توسط پکیجر اندروید
+import socket
+import threading
+import concurrent.futures
+import re
 
 def main(page: ft.Page):
     # تنظیمات مخصوص موبایل
     page.title = "SNI Scanner Mobile"
     page.theme_mode = ft.ThemeMode.DARK
     page.padding = 20
-    page.scroll = "adaptive" # فعال‌سازی اسکرول با دست در اندروید
+    # ❌ خط page.scroll = "adaptive" حذف شد تا با ListView تداخل نکند
 
     # هدر برنامه
     title = ft.Text("📱 SNI Scanner Android", size=22, weight=ft.FontWeight.BOLD, color=ft.colors.BLUE_400)
@@ -22,6 +27,8 @@ def main(page: ft.Page):
     )
     
     lbl_status = ft.Text("وضعیت: آماده به کار 🟢", color=ft.colors.GREY_400)
+    
+    # اینجا expand=True به درستی کار می‌کند چون صفحه دیگر بی‌نهایت نیست
     lv_results = ft.ListView(expand=True, spacing=10, auto_scroll=True)
 
     def log_message(msg, text_color=ft.colors.WHITE):
@@ -30,11 +37,6 @@ def main(page: ft.Page):
 
     def run_scan(targets):
         try:
-            # 💡 ترفند اصلی اندروید: لود کردن کتابخانه‌های شبکه دقیقا اینجا (بعد از لود شدن گرافیک)
-            import socket
-            import concurrent.futures
-            import re
-
             PORTS = [443, 2053, 2083, 2087, 2096, 8443]
 
             def check_port(ip, port):
@@ -81,7 +83,6 @@ def main(page: ft.Page):
             page.update()
 
         except Exception as e:
-            # اگر خطایی رخ دهد، روی صفحه گوشی چاپ می‌شود تا صفحه سیاه نماند!
             log_message(f"SYSTEM ERROR:\n{str(e)}\n{traceback.format_exc()}", ft.colors.RED_ACCENT)
             lbl_status.value = "❌ خطا در اجرای اسکن"
             btn_scan.disabled = False
@@ -104,8 +105,7 @@ def main(page: ft.Page):
         lbl_status.color = ft.colors.ORANGE_400
         page.update()
 
-        # اجرای اسکن در پس‌زمینه اندروید
-        import threading
+        # اجرای اسکن در Thread جداگانه برای جلوگیری از فریز شدن صفحه
         threading.Thread(target=run_scan, args=(targets,), daemon=True).start()
 
     btn_scan = ft.ElevatedButton(
@@ -120,7 +120,8 @@ def main(page: ft.Page):
     page.add(title, txt_input, btn_scan, lbl_status, ft.Divider(), lv_results)
 
 # اجرای امن برنامه
-try:
-    ft.app(target=main)
-except Exception as main_e:
-    print(f"CRITICAL BOOT ERROR: {main_e}")
+if __name__ == "__main__":
+    try:
+        ft.app(target=main)
+    except Exception as main_e:
+        print(f"CRITICAL BOOT ERROR: {main_e}")
