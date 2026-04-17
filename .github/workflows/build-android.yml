@@ -1,6 +1,5 @@
 name: Build Android APK
 
-# این اکشن با هر تغییر در شاخه اصلی اجرا می‌شود
 on:
   push:
     branches: [ "main", "master" ]
@@ -15,30 +14,38 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # پیش‌نیاز حیاتی برای اندروید: نصب جاوا
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # برای بیلد اندروید در Flet به Flutter نیاز داریم که این بخش آن را روی سرور گیت‌هاب نصب می‌کند
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+
+      - name: Create requirements.txt
+        run: echo "flet" > requirements.txt
 
       - name: Install Flet
         run: |
           python -m pip install --upgrade pip
           pip install flet
 
-      - name: Build APK
-        # این دستور کل پروژه را به فرمت اندروید کامپایل می‌کند
-        run: flet build apk
+      - name: Build Android APK (Verbose)
+        # سوییچ verbose اضافه شد تا لاگ‌ها لحظه‌ای چاپ شوند
+        run: flet build apk --verbose --product "SNI-Scanner" --org "com.seramo.sniscanner"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: SNI-Scanner-Android-APK
-          # مسیر پیش‌فرض ذخیره فایل‌های APK در Flet
           path: build/apk/*.apk
           retention-days: 7
