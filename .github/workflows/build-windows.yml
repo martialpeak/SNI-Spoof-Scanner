@@ -19,32 +19,20 @@ jobs:
         with:
           python-version: '3.11'
 
-      # نصب فلاتر برای جلوگیری از توقف پروسه و درخواست y/n
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-
-      - name: Create requirements.txt
-        shell: bash
-        run: echo "flet" > requirements.txt
-
-      - name: Install Flet
+      - name: Install Dependencies
+        # نصب پای‌اینستالر برای بیلد گرفتن
         run: |
           python -m pip install --upgrade pip
-          pip install flet
+          pip install pyinstaller
 
-      - name: Build Windows App (Native Flutter)
-        # استفاده از bash برای حل قطعی مشکل یونیکد در سرورهای مایکروسافت
-        shell: bash
-        env:
-          PYTHONIOENCODING: utf-8
-          PYTHONUTF8: 1
-        run: flet build windows --product "SNI-Scanner" --org "com.seramo.sniscanner"
+      - name: Build Windows EXE
+        # این دستور فایل windows_app.py را به یک فایل اجرایی تمیز تبدیل می‌کند
+        run: pyinstaller --noconsole --onefile windows_app.py
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SNI-Scanner-Windows
-          path: build/windows/
+          name: SNI-Scanner-Windows-EXE
+          # خروجی در پوشه dist ذخیره می‌شود
+          path: dist/*.exe
           retention-days: 7
