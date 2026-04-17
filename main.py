@@ -30,7 +30,7 @@ def scan_target_ports(ip):
 
 def main(page: ft.Page):
     page.title = "SNI Scanner"
-    page.theme_mode = ft.ThemeMode.DARK # تم تاریک و شیک برای ابزار شبکه
+    page.theme_mode = ft.ThemeMode.DARK # تم تاریک
     page.padding = 15
 
     title = ft.Text("SNI Scanner", size=26, weight=ft.FontWeight.BOLD, color=ft.colors.BLUE_200)
@@ -45,7 +45,6 @@ def main(page: ft.Page):
     
     lbl_status = ft.Text("Status: Ready", color=ft.colors.CYAN_200)
     
-    # لیستی با قابلیت اسکرول برای نمایش نتایج
     lv_results = ft.ListView(expand=True, spacing=5, auto_scroll=True)
 
     def append_result(text, text_color=ft.colors.WHITE):
@@ -76,7 +75,6 @@ def main(page: ft.Page):
                 if open_found: ok_list.append(output_line)
                 else: fail_list.append(output_line)
 
-        # بروزرسانی رابط کاربری پس از اتمام اسکن
         lv_results.controls.clear()
         
         append_result("=== OK (at least one open port) ===", ft.colors.GREEN_400)
@@ -107,7 +105,6 @@ def main(page: ft.Page):
         lbl_status.color = ft.colors.RED_400
         page.update()
 
-        # اجرای اسکن در Thread پس‌زمینه تا اپلیکیشن فریز نشود
         threading.Thread(target=run_scan_logic, args=(targets,), daemon=True).start()
 
     btn_scan = ft.ElevatedButton(
@@ -118,7 +115,6 @@ def main(page: ft.Page):
         height=50
     )
 
-    # چیدمان عناصر در صفحه
     page.add(
         title,
         txt_input,
