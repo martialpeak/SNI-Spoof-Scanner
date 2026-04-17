@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android APK (Flutter Native Auto-Setup)
 
 on:
   push:
@@ -19,32 +19,30 @@ jobs:
           distribution: 'zulu'
           java-version: '17'
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
 
-      - name: Install Flet
+      - name: Create Flutter Project
+        # اینجا گیت‌هاب خودش پوشه‌ها و فایل‌های لازم مثل pubspec.yaml را می‌سازد
+        run: flutter create mobile_app --org "com.seramo.sniscanner"
+
+      - name: Inject Your Custom Code
+        # این دستور، فایل main.dart شما را می‌برد داخل پوشه lib قرار می‌دهد
+        run: cp main.dart mobile_app/lib/main.dart
+
+      - name: Add Android Internet Permission
+        # اپلیکیشن‌های اندروید برای اسکن نیاز به دسترسی اینترنت دارند
         run: |
-          python -m pip install --upgrade pip
-          pip install flet
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.INTERNET"/>' mobile_app/android/app/src/main/AndroidManifest.xml
 
       - name: Build Android APK
-        # این دستور کد main.py شما را به APK اندروید تبدیل می‌کند
-        run: flet build apk --product "SNI-Scanner-Mobile" --org "com.seramo.sniscanner"
+        working-directory: ./mobile_app
+        run: flutter build apk --release
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: SNI-Scanner-Android-APK
-          path: build/apk/*.apk
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: SNI-Scanner-Go-APK
-          path: "*.apk"
+          path: mobile_app/build/app/outputs/flutter-apk/app-release.apk
