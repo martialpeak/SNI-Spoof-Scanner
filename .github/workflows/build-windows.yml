@@ -3,7 +3,7 @@ name: Build and Release Final
 on:
   push:
     tags:
-      - 'v*' # اجرای بیلد فقط با تگ جدید (مثل v2.0)
+      - 'v*' # اجرای بیلد فقط با ثبت تگ جدید
 
 jobs:
   build-windows:
@@ -18,7 +18,7 @@ jobs:
           pyinstaller --noconsole --onefile --clean --name "SNI-Scanner-Win" windows_app.py
       - uses: actions/upload-artifact@v4
         with:
-          name: win-exe
+          name: win-bin
           path: dist/*.exe
 
   build-android:
@@ -35,10 +35,10 @@ jobs:
           flet build apk --product "SNI-Scanner-Mobile"
       - uses: actions/upload-artifact@v4
         with:
-          name: apk-file
+          name: apk-bin
           path: build/apk/*.apk
 
-  publish:
+  release:
     needs: [build-windows, build-android]
     runs-on: ubuntu-latest
     permissions:
@@ -46,13 +46,13 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          path: releases
-      - name: Create GitHub Release
+          path: bin-files
+      - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            releases/win-exe/*.exe
-            releases/apk-file/*.apk
+            bin-files/win-bin/*.exe
+            bin-files/apk-bin/*.apk
           tag_name: ${{ github.ref_name }}
           name: "SNI Scanner Version ${{ github.ref_name }}"
         env:
