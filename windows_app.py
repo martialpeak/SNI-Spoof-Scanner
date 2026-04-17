@@ -10,10 +10,10 @@ import os
 # پورت‌های استاندارد CDN
 PORTS = [443, 2053, 2083, 2087, 2096, 8443]
 
-class SNI_Ultra_v4_2:
+class SNI_Scanner_v4_3:
     def __init__(self, root):
         self.root = root
-        self.root.title("💎 SNI Scanner Pro v4.2 - Fixed UI")
+        self.root.title("💎 SNI Scanner Pro v4.3 - Perfect Edition")
         self.root.geometry("850x800")
         self.root.configure(bg="#0F0F10")
         
@@ -27,24 +27,33 @@ class SNI_Ultra_v4_2:
         self.setup_shortcuts()
 
     def setup_shortcuts(self):
-        """حل مشکل کپی و پیست با کیبورد فارسی"""
+        """اضافه کردن منوی راست‌کلیک و حل مشکل کپی/پیست"""
+        def make_menu(w):
+            m = tk.Menu(self.root, tearoff=0, bg="#2C2C2E", fg="white", font=("Tahoma", 9))
+            m.add_command(label="📋 کپی (Copy)", command=lambda: w.event_generate("<<Copy>>"))
+            m.add_command(label="📝 چسباندن (Paste)", command=lambda: w.event_generate("<<Paste>>"))
+            m.add_separator()
+            m.add_command(label="انتخاب همه", command=lambda: w.event_generate("<<SelectAll>>"))
+            w.bind("<Button-3>", lambda e: m.post(e.x_root, e.y_root))
+
         for w in [self.txt_input, self.txt_output]:
-            w.bind("<Control-v>", lambda e: e.widget.event_generate("<<Paste>>"))
-            w.bind("<Control-c>", lambda e: e.widget.event_generate("<<Copy>>"))
-            w.bind("<Control-a>", lambda e: e.widget.event_generate("<<SelectAll>>"))
+            make_menu(w)
+            w.bind("<Control-v>", lambda e: w.event_generate("<<Paste>>"))
+            w.bind("<Control-c>", lambda e: w.event_generate("<<Copy>>"))
+            w.bind("<Control-a>", lambda e: w.event_generate("<<SelectAll>>"))
 
     def setup_ui(self):
         # هدر اصلی
         header = tk.Frame(self.root, bg=self.colors["accent"], height=55)
         header.pack(fill="x")
-        tk.Label(header, text="SNI SCANNER PRO - v4.2 EXTREME", bg=self.colors["accent"], 
+        tk.Label(header, text="SNI SCANNER PRO - v4.3 EXTREME", bg=self.colors["accent"], 
                  fg="white", font=("Segoe UI", 14, "bold")).pack(pady=12)
 
         container = tk.Frame(self.root, bg=self.colors["bg"])
         container.pack(fill="both", expand=True, padx=20, pady=10)
 
         # ---------------------------------------------------------
-        # اول المان‌های پایینی را می‌سازیم تا هرگز از صفحه خارج نشوند
+        # المان‌های پایینی (وضعیت و دکمه‌های خروجی)
         # ---------------------------------------------------------
         self.status = tk.Label(container, text="Ready 🟢", bg="#1C1C1E", fg="#8E8E93", anchor="w", padx=15, pady=5)
         self.status.pack(side="bottom", fill="x")
@@ -63,12 +72,21 @@ class SNI_Ultra_v4_2:
         self.btn_save.pack(side="left", padx=5)
 
         # ---------------------------------------------------------
-        # حالا المان‌های بالایی را می‌سازیم
+        # المان‌های بالایی (ورودی، دکمه بارگذاری، اسکن و لاگ)
         # ---------------------------------------------------------
-        tk.Label(container, text="📥 ورودی آی‌پی یا دامنه (هر خط یکی):", bg=self.colors["bg"], fg="white", font=("Tahoma", 10)).pack(side="top", anchor="e")
+        input_header = tk.Frame(container, bg=self.colors["bg"])
+        input_header.pack(side="top", fill="x")
         
+        tk.Label(input_header, text="📥 ورودی آی‌پی یا دامنه (هر خط یکی):", bg=self.colors["bg"], fg="white", font=("Tahoma", 10)).pack(side="right")
+        
+        # بازگشت دکمه انتخاب فایل
+        self.btn_load = tk.Button(input_header, text="📁 بارگذاری فایل (TXT)", command=self.load_file,
+                                bg="#3A3A3C", fg="white", font=("Tahoma", 8),
+                                relief="flat", padx=10, pady=2, cursor="hand2")
+        self.btn_load.pack(side="left")
+
         self.txt_input = scrolledtext.ScrolledText(container, height=6, bg=self.colors["card"], 
-                                                 fg="white", font=("Segoe UI", 11), borderwidth=0)
+                                                 fg="white", font=("Segoe UI", 11), borderwidth=0, padx=5, pady=5)
         self.txt_input.pack(side="top", fill="x", pady=5)
 
         self.btn_scan = tk.Button(container, text="🚀 شروع اسکن پرسرعت", command=self.start_scan,
@@ -78,17 +96,32 @@ class SNI_Ultra_v4_2:
 
         tk.Label(container, text="📊 گزارش اسکن:", bg=self.colors["bg"], fg="white", font=("Tahoma", 10)).pack(side="top", anchor="e")
         
-        # کادر لاگ تمام فضای خالی وسط را پر می‌کند، بدون اینکه دکمه‌های پایین را هل بدهد
-        self.txt_output = scrolledtext.ScrolledText(container, bg="black", font=("Consolas", 10), borderwidth=0)
+        self.txt_output = scrolledtext.ScrolledText(container, bg="black", font=("Consolas", 10), borderwidth=0, padx=5, pady=5)
         self.txt_output.pack(side="top", fill="both", expand=True, pady=5)
 
     def play_sound(self):
         try: winsound.Beep(500, 200); winsound.Beep(800, 250)
         except: pass
 
+    def load_file(self):
+        """تابع بارگذاری فایل تکست"""
+        file_path = filedialog.askopenfilename(filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")])
+        if file_path:
+            with open(file_path, "r", encoding="utf-8") as f:
+                self.txt_input.delete("1.0", tk.END)
+                self.txt_input.insert(tk.END, f.read())
+
     def start_scan(self):
-        targets = [t.strip() for t in self.txt_input.get("1.0", tk.END).splitlines() if t.strip()]
+        raw_lines = self.txt_input.get("1.0", tk.END).splitlines()
+        
+        # حذف فاصله‌های اضافی و خطوط خالی
+        cleaned_lines = [t.strip() for t in raw_lines if t.strip()]
+        
+        # حذف خطوط تکراری با حفظ ترتیب ورود
+        targets = list(dict.fromkeys(cleaned_lines))
+
         if not targets: return
+        
         self.ok_data = []
         self.btn_scan.config(state="disabled", text="⌛ در حال اسکن...")
         self.txt_output.delete("1.0", tk.END)
@@ -151,4 +184,4 @@ class SNI_Ultra_v4_2:
             messagebox.showinfo("ذخیره شد", "فایل با موفقیت ذخیره شد.")
 
 if __name__ == "__main__":
-    root = tk.Tk(); app = SNI_Ultra_v4_2(root); root.mainloop()
+    root = tk.Tk(); app = SNI_Scanner_v4_3(root); root.mainloop()
