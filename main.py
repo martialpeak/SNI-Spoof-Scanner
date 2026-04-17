@@ -1,197 +1,132 @@
-import 'package:flutter/material.dart';
-import 'dart:io';
-import 'dart:async';
+import flet as ft
+import socket
+import concurrent.futures
+import re
+import threading
+import traceback
 
-void main() {
-  runApp(const SNIScannerApp());
-}
+# پورت‌های استاندارد اسکن
+PORTS = [443, 2053, 2083, 2087, 2096, 8443]
 
-class SNIScannerApp extends StatelessWidget {
-  const SNIScannerApp({super.key});
+def check_port(ip, port):
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1.5) # تایم‌اوت برای اینترنت موبایل
+            result = s.connect_ex((ip, port))
+            return (port, result == 0)
+    except:
+        return (port, False)
 
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'SNI Scanner Mobile',
-      theme: ThemeData.dark().copyWith(
-        scaffoldBackgroundColor: const Color(0xFF121212),
-        primaryColor: Colors.blueAccent,
-      ),
-      home: const ScannerHomePage(),
-      debugShowCheckedModeBanner: false,
-    );
-  }
-}
+def main(page: ft.Page):
+    # تنظیمات مخصوص موبایل
+    page.title = "SNI Scanner Mobile"
+    page.theme_mode = ft.ThemeMode.DARK
+    page.padding = 20
+    page.scroll = "adaptive"
 
-class ScannerHomePage extends StatefulWidget {
-  const ScannerHomePage({super.key});
+    # هدر برنامه
+    title = ft.Text("📱 SNI Scanner Android", size=22, weight=ft.FontWeight.BOLD, color=ft.colors.BLUE_400)
+    
+    # باکس ورودی
+    txt_input = ft.TextField(
+        multiline=True,
+        min_lines=4,
+        max_lines=5,
+        hint_text="دامنه‌ها یا آی‌پی‌ها را وارد کنید...",
+        border_color=ft.colors.BLUE_200,
+        text_align=ft.TextAlign.LEFT
+    )
+    
+    lbl_status = ft.Text("وضعیت: آماده به کار 🟢", color=ft.colors.GREY_400)
+    lv_results = ft.ListView(expand=True, spacing=10, auto_scroll=True)
 
-  @override
-  State<ScannerHomePage> createState() => _ScannerHomePageState();
-}
+    # تعریف دکمه (عملکرد آن در پایین‌تر مشخص می‌شود)
+    btn_scan = ft.ElevatedButton(
+        text="🚀 شروع اسکن در گوشی", 
+        bgcolor=ft.colors.BLUE_700, 
+        color=ft.colors.WHITE,
+        height=50
+    )
 
-class _ScannerHomePageState extends State<ScannerHomePage> {
-  final TextEditingController _inputController = TextEditingController();
-  final List<Widget> _results = [];
-  bool _isScanning = false;
-  String _statusText = "وضعیت: آماده به کار 🟢";
-  Color _statusColor = Colors.grey;
+    def log_message(msg, text_color=ft.colors.WHITE):
+        lv_results.controls.append(ft.Text(msg, color=text_color, selectable=True))
+        page.update()
 
-  final List<int> _ports = [443, 2053, 2083, 2087, 2096, 8443];
+    def run_scan(targets):
+        try:
+            ok_count = 0
+            
+            for target in targets:
+                ips = []
+                # بررسی اینکه ورودی آی‌پی است یا دامنه
+                if re.match(r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$", target):
+                    ips = [target]
+                else:
+                    try:
+                        # جلوگیری از قفل شدن برنامه روی دامنه‌های فیلتر شده یا نامعتبر
+                        socket.setdefaulttimeout(3.0) 
+                        ips = socket.gethostbyname_ex(target)[2]
+                    except Exception:
+                        log_message(f"❌ {target} -> کشف نشد یا فیلتر است", ft.colors.RED_400)
+                        continue
 
-  void _logMessage(String message, Color color) {
-    setState(() {
-      _results.add(
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8.0),
-          child: SelectableText(
-            message,
-            style: TextStyle(color: color, fontSize: 14, fontFamily: 'monospace'),
-          ),
-        ),
-      );
-    });
-  }
+                for ip in ips:
+                    results = []
+                    # استفاده اصولی از ThreadPool برای بررسی سریع پورت‌ها
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=len(PORTS)) as ex:
+                        futures = {ex.submit(check_port, ip, p): p for p in PORTS}
+                        for f in concurrent.futures.as_completed(futures):
+                            results.append(f.result())
+                    
+                    results.sort(key=lambda x: x[0])
+                    res_str = " ".join([f"{p}{'✔️' if o else '❌'}" for p, o in results])
+                    
+                    line = f"🌐 {target}\n↳ {ip} | {res_str}"
+                    if any(o for p, o in results):
+                        log_message(line, ft.colors.GREEN_400)
+                        ok_count += 1
+                    else:
+                        log_message(line, ft.colors.RED_400)
 
-  // تابع بررسی باز بودن پورت به صورت Asynchronous
-  Future<MapEntry<int, bool>> _checkPort(String ip, int port) async {
-    try {
-      final socket = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 1500));
-      socket.destroy(); // بستن بلافاصله سوکت بعد از اتصال موفق
-      return MapEntry(port, true);
-    } catch (e) {
-      return MapEntry(port, false);
-    }
-  }
+            lbl_status.value = f"✅ اسکن تمام شد. ({ok_count} آی‌پی تمیز)"
+            lbl_status.color = ft.colors.GREEN_400
+            btn_scan.disabled = False
+            page.update()
 
-  Future<void> _startScan() async {
-    final rawInput = _inputController.text;
-    final targets = rawInput.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty).toSet().toList();
+        except Exception as e:
+            log_message(f"SYSTEM ERROR:\n{str(e)}\n{traceback.format_exc()}", ft.colors.RED_ACCENT)
+            lbl_status.value = "❌ خطا در اجرای اسکن"
+            btn_scan.disabled = False
+            page.update()
 
-    if (targets.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("لیست خالی است! لطفا تارگت وارد کنید.")),
-      );
-      return;
-    }
+    def start_click(e):
+        raw_lines = txt_input.value.splitlines()
+        targets = list(dict.fromkeys([t.strip() for t in raw_lines if t.strip()]))
+        
+        if not targets:
+            page.snack_bar = ft.SnackBar(ft.Text("لیست خالی است! لطفا تارگت وارد کنید."))
+            page.snack_bar.open = True
+            page.update()
+            return
 
-    setState(() {
-      _isScanning = true;
-      _results.clear();
-      _statusText = "🔍 در حال اسکن شبکه (کمی صبر کنید)...";
-      _statusColor = Colors.orangeAccent;
-    });
+        # غیرفعال کردن دکمه هنگام اسکن
+        btn_scan.disabled = True
+        lv_results.controls.clear()
+        lbl_status.value = "🔍 در حال اسکن شبکه (کمی صبر کنید)..."
+        lbl_status.color = ft.colors.ORANGE_400
+        page.update()
 
-    int okCount = 0;
-    final ipRegex = RegExp(r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$");
+        # اجرای اسکن در پس‌زمینه برای هنگ نکردن رابط کاربری
+        threading.Thread(target=run_scan, args=(targets,), daemon=True).start()
 
-    for (var target in targets) {
-      List<String> ips = [];
+    # اتصال رویداد کلیک به دکمه
+    btn_scan.on_click = start_click
 
-      if (ipRegex.hasMatch(target)) {
-        ips.add(target);
-      } else {
-        // DNS Lookup با پشتیبانی از Timeout برای جلوگیری از قفل شدن
-        try {
-          final addresses = await InternetAddress.lookup(target).timeout(const Duration(seconds: 3));
-          ips = addresses.map((a) => a.address).toList();
-        } catch (e) {
-          _logMessage("❌ $target -> کشف نشد", Colors.redAccent);
-          continue;
-        }
-      }
+    # اضافه کردن المان‌ها به صفحه
+    page.add(title, txt_input, btn_scan, lbl_status, ft.Divider(), lv_results)
 
-      for (var ip in ips) {
-        // اجرای همزمان تمامی درخواست‌های پورت برای یک آی‌پی
-        final futures = _ports.map((port) => _checkPort(ip, port)).toList();
-        final results = await Future.wait(futures);
-
-        // مرتب‌سازی نتایج بر اساس پورت
-        results.sort((a, b) => a.key.compareTo(b.key));
-
-        String resStr = results.map((e) => "${e.key}${e.value ? '✔️' : '❌'}").join(" ");
-        String line = "🌐 $target\n↳ $ip | $resStr";
-
-        bool isAnyOpen = results.any((element) => element.value);
-        if (isAnyOpen) {
-          _logMessage(line, Colors.greenAccent);
-          okCount++;
-        } else {
-          _logMessage(line, Colors.redAccent);
-        }
-      }
-    }
-
-    setState(() {
-      _statusText = "✅ اسکن تمام شد. ($okCount آی‌پی تمیز)";
-      _statusColor = Colors.greenAccent;
-      _isScanning = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                "📱 SNI Scanner Android",
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.blueAccent),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: _inputController,
-                maxLines: 5,
-                minLines: 4,
-                textDirection: TextDirection.ltr,
-                decoration: InputDecoration(
-                  hintText: "دامنه‌ها یا آی‌پی‌ها را وارد کنید...",
-                  border: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.blue.shade200),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: Colors.blue.shade200),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 15),
-              ElevatedButton(
-                onPressed: _isScanning ? null : _startScan,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue.shade700,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 50),
-                ),
-                child: _isScanning 
-                    ? const SizedBox(
-                        height: 20, width: 20, 
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
-                      )
-                    : const Text("🚀 شروع اسکن در گوشی", style: TextStyle(fontSize: 16)),
-              ),
-              const SizedBox(height: 15),
-              Text(
-                _statusText,
-                style: TextStyle(color: _statusColor, fontWeight: FontWeight.bold),
-              ),
-              const Divider(height: 30, color: Colors.white24),
-              Expanded(
-                child: ListView.builder(
-                  itemCount: _results.length,
-                  itemBuilder: (context, index) {
-                    return _results[index];
-                  },
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
+# اجرای برنامه
+try:
+    ft.app(target=main)
+except Exception as main_e:
+    print(f"CRITICAL BOOT ERROR: {main_e}")
