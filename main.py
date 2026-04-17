@@ -1,166 +1,121 @@
-package main
+import flet as ft
+import traceback
 
-import (
-	"fmt"
-	"net"
-	"strings"
-	"sync"
-	"time"
+def main(page: ft.Page):
+    # تنظیمات مخصوص موبایل
+    page.title = "SNI Scanner Mobile"
+    page.theme_mode = ft.ThemeMode.DARK
+    page.padding = 20
+    page.scroll = "adaptive" # فعال‌سازی اسکرول با دست در اندروید
 
-	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/widget"
-)
+    # هدر برنامه
+    title = ft.Text("📱 SNI Scanner Android", size=22, weight=ft.FontWeight.BOLD, color=ft.colors.BLUE_400)
+    
+    # باکس ورودی
+    txt_input = ft.TextField(
+        multiline=True,
+        min_lines=4,
+        max_lines=5,
+        hint_text="دامنه‌ها یا آی‌پی‌ها را وارد کنید...",
+        border_color=ft.colors.BLUE_200,
+        text_align=ft.TextAlign.LEFT
+    )
+    
+    lbl_status = ft.Text("وضعیت: آماده به کار 🟢", color=ft.colors.GREY_400)
+    lv_results = ft.ListView(expand=True, spacing=10, auto_scroll=True)
 
-var ports = []int{443, 2053, 2083, 2087, 2096, 8443}
-var timeout = 1500 * time.Millisecond
+    def log_message(msg, text_color=ft.colors.WHITE):
+        lv_results.controls.append(ft.Text(msg, color=text_color, selectable=True))
+        page.update()
 
-func main() {
-	// ساخت اپلیکیشن و پنجره
-	myApp := app.New()
-	myWindow := myApp.NewWindow("SNI Scanner Mobile")
+    def run_scan(targets):
+        try:
+            # لود کردن شبکه‌ها بعد از اجرای کامل گرافیک (برای جلوگیری از صفحه سیاه)
+            import socket
+            import concurrent.futures
+            import re
 
-	// المان‌های رابط کاربری
-	title := widget.NewLabelWithStyle("📱 SNI Scanner (Golang Edition)", fyne.TextAlignCenter, fyne.TextStyle{Bold: true})
-	
-	input := widget.NewMultiLineEntry()
-	input.SetPlaceHolder("دامنه‌ها یا آی‌پی‌ها را وارد کنید (هر خط یکی)...")
-	input.Wrapping = fyne.TextWrapWord
+            PORTS = [443, 2053, 2083, 2087, 2096, 8443]
 
-	status := widget.NewLabel("وضعیت: آماده به کار 🟢")
-	
-	resultsLabel := widget.NewLabel("")
-	resultsLabel.Wrapping = fyne.TextWrapWord
-	scrollArea := container.NewVScroll(resultsLabel) // قابل اسکرول کردن نتایج
+            def check_port(ip, port):
+                try:
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        s.settimeout(1.5) # تایم‌اوت کمی بیشتر برای اینترنت موبایل
+                        return (port, s.connect_ex((ip, port)) == 0)
+                except:
+                    return (port, False)
 
-	var isScanning bool
+            ok_count = 0
+            for target in targets:
+                ips = [target] if re.match(r"^[0-9.]+$", target) else []
+                if not ips:
+                    try:
+                        ips = socket.gethostbyname_ex(target)[2]
+                    except:
+                        log_message(f"❌ {target} -> کشف نشد", ft.colors.RED_400)
+                        continue
 
-	// دکمه اسکن
-	scanBtn := widget.NewButton("🚀 شروع اسکن پرسرعت", func() {
-		if isScanning {
-			return
-		}
+                for ip in ips:
+                    # استفاده از پردازش سبک‌تر برای فشار نیامدن به پردازنده گوشی
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+                        futures = {ex.submit(check_port, ip, p): p for p in PORTS}
+                        results = []
+                        for f in concurrent.futures.as_completed(futures):
+                            p, is_open = f.result()
+                            results.append((p, is_open))
+                    
+                    results.sort(key=lambda x: x[0])
+                    res_str = " ".join([f"{p}{'✔️' if o else '❌'}" for p, o in results])
+                    
+                    line = f"🌐 {target}\n↳ {ip} | {res_str}"
+                    if any(o for p, o in results):
+                        log_message(line, ft.colors.GREEN_400)
+                        ok_count += 1
+                    else:
+                        log_message(line, ft.colors.RED_400)
 
-		// دریافت و تمیز کردن تارگت‌ها
-		rawText := input.Text
-		lines := strings.Split(rawText, "\n")
-		var targets []string
-		for _, line := range lines {
-			t := strings.TrimSpace(line)
-			if t != "" {
-				targets = append(targets, t)
-			}
-		}
+            lbl_status.value = f"✅ اسکن تمام شد. ({ok_count} آی‌پی تمیز)"
+            lbl_status.color = ft.colors.GREEN_400
+            btn_scan.disabled = False
+            page.update()
 
-		if len(targets) == 0 {
-			status.SetText("❌ لیست خالی است!")
-			return
-		}
+        except Exception as e:
+            # شکار ارورهای پنهان اندروید و نمایش روی صفحه
+            log_message(f"SYSTEM ERROR:\n{str(e)}\n{traceback.format_exc()}", ft.colors.RED_ACCENT)
+            lbl_status.value = "❌ خطا در اجرای اسکن"
+            btn_scan.disabled = False
+            page.update()
 
-		isScanning = true
-		status.SetText("🔍 در حال اسکن با نهایت سرعت...")
-		resultsLabel.SetText("") // پاک کردن نتایج قبلی
+    def start_click(e):
+        raw_lines = txt_input.value.splitlines()
+        targets = list(dict.fromkeys([t.strip() for t in raw_lines if t.strip()]))
+        
+        if not targets:
+            page.snack_bar = ft.SnackBar(ft.Text("لیست خالی است! لطفا تارگت وارد کنید."))
+            page.snack_bar.open = True
+            page.update()
+            return
 
-		// اجرای اسکن در بک‌گراند تا گرافیک قفل نشود
-		go runScan(targets, status, resultsLabel, &isScanning)
-	})
+        btn_scan.disabled = True
+        lv_results.controls.clear()
+        lbl_status.value = "🔍 در حال اسکن شبکه (کمی صبر کنید)..."
+        lbl_status.color = ft.colors.ORANGE_400
+        page.update()
 
-	// چیدمان عناصر روی صفحه
-	topBox := container.NewVBox(title, input, scanBtn, status)
-	content := container.NewBorder(topBox, nil, nil, nil, scrollArea)
+        import threading
+        threading.Thread(target=run_scan, args=(targets,), daemon=True).start()
 
-	myWindow.SetContent(content)
-	myWindow.Resize(fyne.NewSize(350, 600)) // اندازه پیش‌فرض موبایل
-	myWindow.ShowAndRun()
-}
+    btn_scan = ft.ElevatedButton(
+        text="🚀 شروع اسکن در گوشی", 
+        on_click=start_click, 
+        bgcolor=ft.colors.BLUE_700, 
+        color=ft.colors.WHITE,
+        height=50
+    )
 
-// تابع اصلی اسکن همزمان
-func runScan(targets []string, status *widget.Label, resultsLabel *widget.Label, isScanning *bool) {
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	cleanCount := 0
-	var outputBuilder strings.Builder
+    page.add(title, txt_input, btn_scan, lbl_status, ft.Divider(), lv_results)
 
-	// تابع کمکی برای آپدیت امن رابط کاربری
-	updateUI := func(msg string) {
-		mu.Lock()
-		outputBuilder.WriteString(msg + "\n")
-		currentText := outputBuilder.String()
-		mu.Unlock()
-		resultsLabel.SetText(currentText)
-	}
-
-	for _, target := range targets {
-		wg.Add(1)
-		go func(t string) {
-			defer wg.Done()
-
-			var ips []string
-			if net.ParseIP(t) != nil {
-				ips = []string{t}
-			} else {
-				resolved, err := net.LookupHost(t)
-				if err != nil {
-					updateUI(fmt.Sprintf("❌ %s -> کشف نشد", t))
-					return
-				}
-				ips = resolved
-			}
-
-			for _, ip := range ips {
-				res := scanPorts(ip)
-				statusStr := ""
-				isClean := false
-				for _, p := range ports {
-					if res[p] {
-						statusStr += fmt.Sprintf("%d✔️ ", p)
-						isClean = true
-					} else {
-						statusStr += fmt.Sprintf("%d❌ ", p)
-					}
-				}
-
-				line := fmt.Sprintf("🌐 %s\n↳ %s | %s\n", t, ip, statusStr)
-				updateUI(line)
-				
-				if isClean {
-					mu.Lock()
-					cleanCount++
-					mu.Unlock()
-				}
-			}
-		}(target)
-	}
-
-	wg.Wait()
-	status.SetText(fmt.Sprintf("✅ پایان! %d آی‌پی تمیز پیدا شد.", cleanCount))
-	*isScanning = false
-}
-
-// بررسی پورت‌ها
-func scanPorts(ip string) map[int]bool {
-	results := make(map[int]bool)
-	var portWg sync.WaitGroup
-	var mu sync.Mutex
-
-	for _, port := range ports {
-		portWg.Add(1)
-		go func(p int) {
-			defer portWg.Done()
-			address := fmt.Sprintf("%s:%d", ip, p)
-			conn, err := net.DialTimeout("tcp", address, timeout)
-
-			mu.Lock()
-			if err != nil {
-				results[p] = false
-			} else {
-				results[p] = true
-				conn.Close()
-			}
-			mu.Unlock()
-		}(port)
-	}
-	portWg.Wait()
-	return results
-}
+try:
+    ft.app(target=main)
+except Exception as main_e:
+    print(f"CRITICAL BOOT ERROR: {main_e}")
