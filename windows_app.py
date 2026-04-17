@@ -5,83 +5,115 @@ import threading
 import concurrent.futures
 import re
 import winsound
+import os
 
 PORTS = [443, 2053, 2083, 2087, 2096, 8443]
 
-class UltraScannerPro:
+class SNI_Ultra_Pro_V3:
     def __init__(self, root):
         self.root = root
-        self.root.title("🚀 SNI Ultra Scanner v2.5 - Professional Edition")
-        self.root.geometry("850x780")
-        self.root.configure(bg="#1A1A1B")
+        self.root.title("🚀 SNI Ultra Scanner v3.0 - Professional")
+        self.root.geometry("900x850")
+        self.root.configure(bg="#0F0F10")
         
-        # رنگ‌بندی اصلاح شده
-        self.colors = {"bg": "#1A1A1B", "card": "#272729", "accent": "#00D1FF", 
-                       "success": "#00FF66", "fail": "#FF4D4D", "text": "#FFFFFF"}
+        # پالت رنگی مدرن
+        self.colors = {
+            "bg": "#0F0F10",
+            "card": "#1C1C1E",
+            "accent": "#0A84FF",
+            "success": "#30D158",
+            "fail": "#FF453A",
+            "text": "#FFFFFF",
+            "secondary": "#8E8E93"
+        }
         
+        self.ok_results = [] # برای ذخیره نتایج موفق جهت خروجی گرفتن
         self.setup_ui()
-        self.fix_shortcuts() # حل مشکل کپی/پیست
+        self.enable_universal_paste()
 
-    def fix_shortcuts(self):
-        # فعال کردن کپی، پیست و انتخاب همه برای ویندوز
-        self.txt_input.bind("<Control-v>", lambda e: self.txt_input.event_generate("<<Paste>>"))
-        self.txt_input.bind("<Control-c>", lambda e: self.txt_input.event_generate("<<Copy>>"))
-        self.txt_input.bind("<Control-a>", lambda e: self.txt_input.event_generate("<<SelectAll>>"))
+    def enable_universal_paste(self):
+        """فعالسازی کامل کپی و پیست برای تمام باکس‌های متنی"""
+        def make_menu(w):
+            menu = tk.Menu(w, tearoff=0, bg=self.colors["card"], fg="white")
+            menu.add_command(label="Cut", command=lambda: w.event_generate("<<Cut>>"))
+            menu.add_command(label="Copy", command=lambda: w.event_generate("<<Copy>>"))
+            menu.add_command(label="Paste", command=lambda: w.event_generate("<<Paste>>"))
+            menu.add_command(label="Select All", command=lambda: w.event_generate("<<SelectAll>>"))
+            w.bind("<Button-3>", lambda e: menu.post(e.x_root, e.y_root))
+
+        for widget in [self.txt_input, self.txt_output]:
+            make_menu(widget)
+            widget.bind("<Control-v>", lambda e: widget.event_generate("<<Paste>>"))
+            widget.bind("<Control-c>", lambda e: widget.event_generate("<<Copy>>"))
+            widget.bind("<Control-a>", lambda e: widget.event_generate("<<SelectAll>>"))
 
     def setup_ui(self):
-        # هدر
-        header = tk.Frame(self.root, bg=self.colors["accent"], height=60)
+        # هدر بالایی
+        header = tk.Frame(self.root, bg=self.colors["accent"], height=50)
         header.pack(fill="x")
-        tk.Label(header, text="⚡ SNI ULTRA SCANNER PRO ⚡", bg=self.colors["accent"], 
-                 fg="black", font=("Segoe UI", 16, "bold")).pack(pady=10)
+        tk.Label(header, text="💎 SNI SCANNER PRO - ULTRA EDITION", bg=self.colors["accent"], 
+                 fg="white", font=("Segoe UI", 14, "bold")).pack(pady=10)
 
-        # بخش راهنمای فارسی (راست‌چین شده)
-        guide_frame = tk.LabelFrame(self.root, text=" 📖 راهنمای کاربری ", bg=self.colors["bg"], 
-                                   fg=self.colors["accent"], font=("Tahoma", 10, "bold"), labelanchor="ne")
-        guide_frame.pack(fill="x", padx=20, pady=10)
-        
-        guide_text = (
-            "• آی‌پی‌ها یا دامنه‌ها را در باکس زیر وارد کنید (هر خط یک مورد) 📝\n"
-            "• دکمه اسکن را بزنید تا وضعیت پورت‌های CDN بررسی شود 🔍\n"
-            "• علامت ✔️ یعنی پورت باز (آی‌پی تمیز) و ❌ یعنی پورت بسته است 🛡️"
-        )
-        tk.Label(guide_frame, text=guide_text, bg=self.colors["bg"], fg="#BBBBBB", 
-                 justify="right", font=("Tahoma", 9), padx=10, pady=10).pack(anchor="e")
+        # فریم اصلی برای محتوا
+        main_container = tk.Frame(self.root, bg=self.colors["bg"])
+        main_container.pack(fill="both", expand=True, padx=25, pady=10)
 
-        # ورودی
-        tk.Label(self.root, text="📥 لیست اهداف (Targets):", bg=self.colors["bg"], fg="white", font=("Tahoma", 10)).pack(anchor="e", padx=20)
-        self.txt_input = scrolledtext.ScrolledText(self.root, height=8, bg=self.colors["card"], 
-                                                 fg="white", font=("Consolas", 11), borderwidth=0, undo=True)
-        self.txt_input.pack(fill="x", padx=20, pady=5)
+        # راهنمای فارسی
+        guide_label = tk.Label(main_container, text="📌 راهنما: دامنه‌ها را وارد کنید و اسکن را بزنید. موارد موفق سبز می‌شوند.", 
+                              bg=self.colors["bg"], fg=self.colors["secondary"], font=("Tahoma", 9))
+        guide_label.pack(anchor="e", pady=(0, 10))
 
-        # دکمه‌ها
-        btn_frame = tk.Frame(self.root, bg=self.colors["bg"])
-        btn_frame.pack(fill="x", padx=20, pady=15)
+        # بخش ورودی
+        tk.Label(main_container, text="📥 ورودی اهداف (IP/Domain):", bg=self.colors["bg"], fg="white", font=("Tahoma", 10, "bold")).pack(anchor="e")
+        self.txt_input = scrolledtext.ScrolledText(main_container, height=7, bg=self.colors["card"], 
+                                                 fg="white", font=("Segoe UI", 11), borderwidth=0, 
+                                                 padx=10, pady=10, insertbackground="white")
+        self.txt_input.pack(fill="x", pady=5)
 
-        self.btn_scan = tk.Button(btn_frame, text="🚀 شروع اسکن سریع", command=self.start_scan,
-                                bg=self.colors["accent"], fg="black", font=("Segoe UI", 11, "bold"),
-                                relief="flat", padx=40, pady=8, cursor="hand2")
+        # پنل دکمه‌های عملیاتی
+        action_frame = tk.Frame(main_container, bg=self.colors["bg"])
+        action_frame.pack(fill="x", pady=15)
+
+        self.btn_scan = tk.Button(action_frame, text="⚡ شروع اسکن پرسرعت", command=self.start_scan,
+                                bg=self.colors["accent"], fg="white", font=("Segoe UI", 11, "bold"),
+                                relief="flat", padx=30, pady=8, cursor="hand2")
         self.btn_scan.pack(side="right")
 
-        self.btn_load = tk.Button(btn_frame, text="📁 انتخاب فایل", command=self.load_file,
-                                bg="#444", fg="white", font=("Segoe UI", 10),
-                                relief="flat", padx=20, pady=8, cursor="hand2")
+        self.btn_load = tk.Button(action_frame, text="📁 انتخاب فایل", command=self.load_file,
+                                bg="#3A3A3C", fg="white", font=("Segoe UI", 10),
+                                relief="flat", padx=15, pady=8, cursor="hand2")
         self.btn_load.pack(side="left")
 
-        # خروجی
-        tk.Label(self.root, text="📊 نتایج نهایی (Results):", bg=self.colors["bg"], fg="white", font=("Tahoma", 10)).pack(anchor="e", padx=20)
-        self.txt_output = scrolledtext.ScrolledText(self.root, bg="#000000", font=("Consolas", 10), borderwidth=0)
-        self.txt_output.pack(fill="both", expand=True, padx=20, pady=10)
+        # بخش خروجی (Log)
+        tk.Label(main_container, text="📊 گزارش لحظه‌ای (Logs):", bg=self.colors["bg"], fg="white", font=("Tahoma", 10, "bold")).pack(anchor="e")
+        self.txt_output = scrolledtext.ScrolledText(main_container, bg="black", font=("Consolas", 10), 
+                                                  borderwidth=0, padx=10, pady=10)
+        self.txt_output.pack(fill="both", expand=True, pady=5)
 
-        self.status_bar = tk.Label(self.root, text="آماده به کار 🟢", bg="#222", fg="white", anchor="w", padx=10)
+        # پنل ابزارهای کاربردی (Export Tools)
+        export_frame = tk.Frame(main_container, bg=self.colors["bg"])
+        export_frame.pack(fill="x", pady=10)
+
+        self.btn_copy_ok = tk.Button(export_frame, text="📋 کپی موارد موفق", command=self.copy_to_clipboard,
+                                   bg="#2C2C2E", fg=self.colors["success"], font=("Segoe UI", 9, "bold"),
+                                   relief="flat", padx=15, pady=5)
+        self.btn_copy_ok.pack(side="left", padx=5)
+
+        self.btn_save = tk.Button(export_frame, text="💾 ذخیره در فایل", command=self.save_to_file,
+                                bg="#2C2C2E", fg=self.colors["accent"], font=("Segoe UI", 9, "bold"),
+                                relief="flat", padx=15, pady=5)
+        self.btn_save.pack(side="left", padx=5)
+
+        # استاتوس بار
+        self.status_bar = tk.Label(self.root, text="آماده به کار 🟢", bg="#1C1C1E", fg=self.colors["secondary"], anchor="w", padx=15, pady=5)
         self.status_bar.pack(fill="x")
 
-    def play_sound(self, sound_type):
+    def play_sound(self, mode):
         try:
-            if sound_type == "start": winsound.Beep(600, 150)
-            elif sound_type == "end": 
-                winsound.Beep(800, 150)
-                winsound.Beep(1100, 200)
+            if mode == "start": winsound.Beep(440, 100)
+            elif mode == "end": 
+                winsound.Beep(523, 150)
+                winsound.Beep(659, 150)
         except: pass
 
     def load_file(self):
@@ -92,27 +124,37 @@ class UltraScannerPro:
                 self.txt_input.insert(tk.END, f.read())
 
     def start_scan(self):
-        targets = [t.strip() for t in self.txt_input.get("1.0", tk.END).splitlines() if t.strip()]
+        raw_input = self.txt_input.get("1.0", tk.END).splitlines()
+        targets = list(set([t.strip() for t in raw_input if t.strip()])) # حذف تکراری‌ها
         if not targets:
-            messagebox.showwarning("خطا", "لطفاً ابتدا لیست را پر کنید!")
+            messagebox.showwarning("ورودی خالی", "لطفاً ابتدا لیست آی‌پی‌ها یا دامنه‌ها را وارد کنید.")
             return
         
+        self.ok_results = []
         self.play_sound("start")
-        self.btn_scan.config(state="disabled", text="⌛ در حال بررسی...")
+        self.btn_scan.config(state="disabled", text="⌛ در حال پردازش...")
         self.txt_output.delete("1.0", tk.END)
-        self.status_bar.config(text="🔍 در حال اسکن پورت‌ها...", fg=self.colors["accent"])
+        self.status_bar.config(text="🔍 اسکن در حال انجام است...", fg=self.colors["accent"])
         threading.Thread(target=self.run_logic, args=(targets,), daemon=True).start()
 
     def run_logic(self, targets):
-        ok_res, fail_res = [], []
+        ok_list, fail_list = [], []
         for target in targets:
             ips = [target] if re.match(r"^[0-9.]+$", target) else self.resolve(target)
-            for ip in (ips or []):
+            if not ips:
+                fail_list.append(f"❌ {target} -> (کشف نشد/Resolve Failed)")
+                continue
+            
+            for ip in ips:
                 ports_res = self.scan_ports(ip)
-                line = f"🌐 {target.ljust(20)} -> {ip.ljust(15)} | {' '.join(ports_res)}"
-                if any("✔️" in s for s in ports_res): ok_res.append(line)
-                else: fail_res.append(line)
-        self.root.after(0, self.finish_ui, ok_res, fail_res)
+                result_line = f"🌐 {target.ljust(22)} | {ip.ljust(15)} | {' '.join(ports_res)}"
+                if any("✔️" in s for s in ports_res):
+                    ok_list.append(result_line)
+                    self.ok_results.append(f"{target} | {ip}") # برای ذخیره سازی ساده‌تر
+                else:
+                    fail_list.append(result_line)
+        
+        self.root.after(0, self.update_display, ok_list, fail_list)
 
     def resolve(self, domain):
         try: return socket.gethostbyname_ex(domain)[2]
@@ -130,27 +172,45 @@ class UltraScannerPro:
     def check_port(self, ip, port):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.settimeout(1.2)
+                s.settimeout(1.5)
                 return (port, s.connect_ex((ip, port)) == 0)
         except: return (port, False)
 
-    def finish_ui(self, ok, fail):
-        # تنظیم رنگ‌بندی دقیق
-        self.txt_output.tag_config("green_tag", foreground=self.colors["success"])
-        self.txt_output.tag_config("red_tag", foreground=self.colors["fail"])
-        self.txt_output.tag_config("white_tag", foreground="white")
+    def update_display(self, ok, fail):
+        self.txt_output.tag_config("green", foreground=self.colors["success"])
+        self.txt_output.tag_config("red", foreground=self.colors["fail"])
+        self.txt_output.tag_config("white", foreground="white")
 
-        self.txt_output.insert(tk.END, "✅ موارد موفق (IP CLEAN):\n", "green_tag")
-        for line in ok: self.txt_output.insert(tk.END, line + "\n", "white_tag")
+        self.txt_output.insert(tk.END, "✅ موارد موفق (آی‌پی‌های تمیز):\n", "green")
+        for line in ok: self.txt_output.insert(tk.END, line + "\n", "white")
         
-        self.txt_output.insert(tk.END, "\n❌ موارد ناموفق (CLOSED):\n", "red_tag")
-        for line in fail: self.txt_output.insert(tk.END, line + "\n", "white_tag")
+        self.txt_output.insert(tk.END, "\n❌ موارد ناموفق یا مسدود:\n", "red")
+        for line in fail: self.txt_output.insert(tk.END, line + "\n", "white")
         
-        self.status_bar.config(text="✅ پایان اسکن", fg=self.colors["success"])
-        self.btn_scan.config(state="normal", text="🚀 شروع اسکن سریع")
+        self.status_bar.config(text=f"✅ اسکن پایان یافت. {len(ok)} مورد تمیز یافت شد.", fg=self.colors["success"])
+        self.btn_scan.config(state="normal", text="⚡ شروع اسکن پرسرعت")
         self.play_sound("end")
+
+    def copy_to_clipboard(self):
+        if not self.ok_results:
+            messagebox.showinfo("خالی", "مورد موفقی برای کپی وجود ندارد.")
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append("\n".join(self.ok_results))
+        messagebox.showinfo("کپی شد", "لیست موارد موفق در کلیبورد ذخیره شد.")
+
+    def save_to_file(self):
+        if not self.ok_results:
+            messagebox.showinfo("خالی", "دیتایی برای ذخیره وجود ندارد.")
+            return
+        file = filedialog.asksaveasfilename(defaultextension=".txt", filetypes=[("Text Files", "*.txt")])
+        if file:
+            with open(file, "w", encoding="utf-8") as f:
+                f.write("=== CLEAN IP RESULTS ===\n")
+                f.write("\n".join(self.ok_results))
+            messagebox.showinfo("ذخیره شد", f"فایل با موفقیت در مسیر {os.path.basename(file)} ذخیره شد.")
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = UltraScannerPro(root)
+    app = SNI_Ultra_Pro_V3(root)
     root.mainloop()
