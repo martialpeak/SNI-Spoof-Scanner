@@ -3,8 +3,7 @@ name: Build Android APK
 on:
   push:
     branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,7 +13,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      # نصب جاوا (پیش‌نیاز اجباری برای بیلد اندروید)
       - name: Setup Java
         uses: actions/setup-java@v3
         with:
@@ -26,14 +24,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      # نصب فلاتر برای موتور گرافیکی
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
-
-      - name: Create requirements.txt
-        run: echo "flet" > requirements.txt
 
       - name: Install Flet
         run: |
@@ -41,12 +35,11 @@ jobs:
           pip install flet
 
       - name: Build Android APK
-        # استفاده از verbose برای اینکه ببینیم پروسه دانلود پکیج‌ها گیر نکرده است
-        run: flet build apk --verbose --product "SNI-Scanner" --org "com.seramo.sniscanner"
+        # بیلد اندروید از روی فایل main.py
+        run: flet build apk --verbose --product "SNI-Scanner-Mobile" --org "com.seramo.sniscanner"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: SNI-Scanner-Android-APK
           path: build/apk/*.apk
-          retention-days: 7
