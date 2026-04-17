@@ -1,4 +1,4 @@
-name: Build Android APK (Golang + Fyne)
+name: Build Android APK
 
 on:
   push:
@@ -13,28 +13,36 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - name: Setup Java
+        uses: actions/setup-java@v3
         with:
-          go-version: '1.21' # نسخه پایدار Go
+          distribution: 'zulu'
+          java-version: '17'
 
-      - name: Install Dependencies
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install Flet
         run: |
-          sudo apt-get update
-          sudo apt-get install gcc libgl1-mesa-dev xorg-dev
+          python -m pip install --upgrade pip
+          pip install flet
 
-      - name: Install Fyne CLI
-        run: go install fyne.io/fyne/v2/cmd/fyne@latest
+      - name: Build Android APK
+        # این دستور کد main.py شما را به APK اندروید تبدیل می‌کند
+        run: flet build apk --product "SNI-Scanner-Mobile" --org "com.seramo.sniscanner"
 
-      - name: Initialize Go Mod
-        run: |
-          go mod init sniscanner
-          go mod tidy
-
-      - name: Build APK
-        # این دستور فایل APK را با آیکون پیش‌فرض می‌سازد
-        run: ~/go/bin/fyne package -os android -appID com.seramo.sniscanner
-
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SNI-Scanner-Android-APK
+          path: build/apk/*.apk
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
