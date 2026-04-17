@@ -6,11 +6,13 @@ import concurrent.futures
 import winsound
 import os
 import ipaddress
+import urllib.request
+import json
 
 # پورت‌های استاندارد CDN
 PORTS = [443, 2053, 2083, 2087, 2096, 8443]
 
-# دیتابیس آفلاین رنج آی‌پی‌ها (پیش‌پردازش شده برای بالاترین سرعت ممکن)
+# دیتابیس آفلاین رنج آی‌پی‌ها (برای سرعت لحظه‌ای)
 RAW_PROVIDERS = {
     '☁️ Cloudflare': ['173.245.0.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22'],
     '⚡ Fastly': ['151.101.0.0/16', '199.232.0.0/16', '146.75.0.0/16', '199.27.72.0/21'],
@@ -19,14 +21,13 @@ RAW_PROVIDERS = {
     '📦 Amazon/AWS': ['13.32.0.0/15', '13.224.0.0/14', '18.64.0.0/14', '52.46.0.0/18'],
     '🔥 G-Core': ['92.38.128.0/18', '185.156.116.0/22']
 }
-# تبدیل رشته‌ها به آبجکت شبکه پایتون برای پردازش میلی‌ثانیه‌ای
 OFFLINE_PROVIDERS = {name: [ipaddress.ip_network(cidr, strict=False) for cidr in cidrs] for name, cidrs in RAW_PROVIDERS.items()}
 
-class SNI_Scanner_v5:
+class SNI_Scanner_v5_1:
     def __init__(self, root):
         self.root = root
-        self.root.title("💎 SNI Scanner Offline Pro v5.0")
-        self.root.geometry("900x800")
+        self.root.title("💎 SNI Scanner Pro v5.1 - Hybrid Edition")
+        self.root.geometry("950x800")
         self.root.configure(bg="#0F0F10")
         
         self.colors = {
@@ -56,7 +57,7 @@ class SNI_Scanner_v5:
     def setup_ui(self):
         header = tk.Frame(self.root, bg=self.colors["accent"], height=55)
         header.pack(fill="x")
-        tk.Label(header, text="SNI SCANNER OFFLINE PRO - v5.0", bg=self.colors["accent"], 
+        tk.Label(header, text="SNI SCANNER HYBRID PRO - v5.1", bg=self.colors["accent"], 
                  fg="white", font=("Segoe UI", 14, "bold")).pack(pady=12)
 
         container = tk.Frame(self.root, bg=self.colors["bg"])
@@ -68,7 +69,7 @@ class SNI_Scanner_v5:
         export_frame = tk.Frame(container, bg=self.colors["bg"])
         export_frame.pack(side="bottom", fill="x", pady=10)
 
-        self.btn_copy = tk.Button(export_frame, text="📋 کپی آی‌پی‌های تمیز + نام شرکت", command=self.copy_results,
+        self.btn_copy = tk.Button(export_frame, text="📋 کپی آی‌پی‌های تمیز (کامل)", command=self.copy_results,
                                  bg="#2C2C2E", fg=self.colors["success"], font=("Tahoma", 9, "bold"),
                                  relief="flat", padx=20, pady=8, cursor="hand2")
         self.btn_copy.pack(side="right", padx=5)
@@ -97,7 +98,7 @@ class SNI_Scanner_v5:
                                                  fg="white", font=("Segoe UI", 11), borderwidth=0, padx=5, pady=5)
         self.txt_input.pack(side="top", fill="x", pady=5)
 
-        self.btn_scan = tk.Button(container, text="🚀 شروع اسکن هوشمند (آفلاین)", command=self.start_scan,
+        self.btn_scan = tk.Button(container, text="🚀 شروع اسکن هوشمند", command=self.start_scan,
                                 bg=self.colors["accent"], fg="white", font=("Segoe UI", 11, "bold"),
                                 relief="flat", pady=10, cursor="hand2")
         self.btn_scan.pack(side="top", fill="x", pady=5)
@@ -123,16 +124,41 @@ class SNI_Scanner_v5:
         self.txt_input.delete("1.0", tk.END)
         self.txt_input.insert(tk.END, sample)
 
-    def get_offline_provider(self, ip_str):
+    def get_provider_hybrid(self, ip_str):
+        # مرحله اول: جستجوی سریع آفلاین (کسری از ثانیه)
         try:
             target_ip = ipaddress.ip_address(ip_str)
             for provider, networks in OFFLINE_PROVIDERS.items():
                 for net in networks:
                     if target_ip in net:
                         return provider
+        except: pass
+        
+        # مرحله دوم: جستجوی آنلاین برای آی‌پی‌های ناشناس (فال‌بک)
+        try:
+            req = urllib.request.Request(f"https://api.iplocation.net/?ip={ip_str}", headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=2.0) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                isp = data.get('isp', '').strip()
+                
+                if not isp: return '❓ نامشخص'
+                isp_lower = isp.lower()
+                
+                # زیباسازی نام‌های آنلاین
+                if 'cloudflare' in isp_lower: return '☁️ Cloudflare'
+                if 'amazon' in isp_lower or 'cloudfront' in isp_lower: return '📦 Amazon/AWS'
+                if 'fastly' in isp_lower: return '⚡ Fastly'
+                if 'arvan' in isp_lower: return '☁️ ArvanCloud'
+                if 'google' in isp_lower: return '🌐 Google'
+                if 'digitalocean' in isp_lower: return '💧 DigitalOcean'
+                if 'microsoft' in isp_lower or 'azure' in isp_lower: return '🪟 Azure'
+                if 'hetzner' in isp_lower: return '🔴 Hetzner'
+                if 'ovh' in isp_lower: return '🟣 OVH'
+                
+                # اگر هیچکدام نبود، نام خود شرکت را نشان بده
+                return f"🏢 {isp[:15]}"
         except:
-            pass
-        return '❓ نامشخص'
+            return '❓ نامشخص'
 
     def start_scan(self):
         raw_lines = self.txt_input.get("1.0", tk.END).splitlines()
@@ -142,18 +168,16 @@ class SNI_Scanner_v5:
         if not targets: return
         
         self.ok_data = []
-        self.btn_scan.config(state="disabled", text="⌛ در حال اسکن (تست همزمان ۲۰ آی‌پی)...")
+        self.btn_scan.config(state="disabled", text="⌛ در حال اسکن دقیق...")
         self.txt_output.delete("1.0", tk.END)
         threading.Thread(target=self.run_logic, args=(targets,), daemon=True).start()
 
     def process_target(self, target):
         ips = []
         try:
-            # اگر ورودی آی‌پی معتبر باشد
             ipaddress.ip_address(target)
             ips = [target]
         except ValueError:
-            # اگر ورودی دامنه باشد
             try:
                 ips = socket.gethostbyname_ex(target)[2]
             except:
@@ -164,10 +188,10 @@ class SNI_Scanner_v5:
             def check(p):
                 try:
                     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                        s.settimeout(1.5); return (p, s.connect_ex((ip, p)) == 0)
+                        # تایم اوت به 2.0 افزایش یافت تا آی‌پی تمیزی از دست نرود
+                        s.settimeout(2.0); return (p, s.connect_ex((ip, p)) == 0)
                 except: return (p, False)
             
-            # اسکن همزمان پورت‌های یک آی‌پی
             with concurrent.futures.ThreadPoolExecutor(max_workers=len(PORTS)) as ex:
                 results = list(ex.map(check, PORTS))
             
@@ -175,17 +199,23 @@ class SNI_Scanner_v5:
             is_clean = any(o for p, o in results)
 
             if is_clean:
-                provider = self.get_offline_provider(ip)
-                line = f"🌐 {target.ljust(18)[:18]} | {ip.ljust(15)} | {provider.ljust(15)} | {res_str}"
-                self.ok_data.append(f"{ip}\t# {provider}")
+                provider = self.get_provider_hybrid(ip)
+                line = f"🌐 {target.ljust(18)[:18]} | {ip.ljust(15)} | {provider.ljust(16)} | {res_str}"
+                
+                # حل مشکل کپی: اضافه شدن دامنه به خروجی کپی
+                if target == ip:
+                    self.ok_data.append(f"{ip}\t# {provider}")
+                else:
+                    self.ok_data.append(f"{ip}\t# {provider}  [🌐 {target}]")
+                    
                 self.root.after(0, lambda l=line: self.print_log(l, "green"))
             else:
-                line = f"🌐 {target.ljust(18)[:18]} | {ip.ljust(15)} | ❓ {'نامشخص'.ljust(9)} | {res_str}"
+                line = f"🌐 {target.ljust(18)[:18]} | {ip.ljust(15)} | ❓ {'مسدود'.ljust(10)} | {res_str}"
                 self.root.after(0, lambda l=line: self.print_log(l, "red"))
 
     def run_logic(self, targets):
-        # اجرای همزمان روی اهداف مختلف برای سرعت چند برابری
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        # تنظیم ایده آل کارگرها روی 8 برای جلوگیری از خفگی شبکه و حفظ دقت
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
             executor.map(self.process_target, targets)
             
         self.root.after(0, self.finish)
@@ -197,7 +227,7 @@ class SNI_Scanner_v5:
         self.txt_output.see(tk.END)
 
     def finish(self):
-        self.btn_scan.config(state="normal", text="🚀 شروع اسکن هوشمند (آفلاین)")
+        self.btn_scan.config(state="normal", text="🚀 شروع اسکن هوشمند")
         self.status.config(text=f"✅ اسکن پایان یافت. {len(self.ok_data)} آی‌پی تمیز پیدا شد.")
         self.play_sound()
 
@@ -207,7 +237,7 @@ class SNI_Scanner_v5:
             return
         self.root.clipboard_clear()
         self.root.clipboard_append("\n".join(self.ok_data))
-        messagebox.showinfo("کپی شد", f"{len(self.ok_data)} آی‌پی تمیز به همراه نام شرکت در کلیپ‌بورد ذخیره شد.")
+        messagebox.showinfo("کپی شد", f"{len(self.ok_data)} نتیجه به همراه نام دامنه در کلیپ‌بورد ذخیره شد.")
 
     def save_results(self):
         if not self.ok_data:
@@ -221,5 +251,5 @@ class SNI_Scanner_v5:
 
 if __name__ == "__main__":
     root = tk.Tk()
-    app = SNI_Scanner_v5(root)
+    app = SNI_Scanner_v5_1(root)
     root.mainloop()
