@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'dart:convert'; // اضافه شده برای API آنلاین
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
@@ -57,8 +57,10 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
   bool _isScanning = false;
   String _statusMessage = "وضعیت: آماده به کار 🟢";
   Color _statusColor = Colors.grey;
+  
+  // اسکرول کنترلر برای هدایت خودکار لیست به پایین
+  final ScrollController _scrollController = ScrollController();
 
-  // دیتابیس آفلاین آی‌پی‌ها برای سرعت لحظه‌ای
   final Map<String, List<String>> _offlineProviders = {
     '☁️ Cloudflare': ['173.245.0.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22', '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20', '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13', '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22'],
     '⚡ Fastly': ['151.101.0.0/16', '199.232.0.0/16', '146.75.0.0/16', '199.27.72.0/21'],
@@ -86,9 +88,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
     } catch (e) { return false; }
   }
 
-  // موتور ترکیبی (Hybrid) برای تشخیص قطعی نام شرکت
   Future<String> getProviderHybrid(String ip) async {
-    // مرحله اول: استعلام آفلاین (بدون قطعی و پرسرعت)
     int targetIp = ipToInt(ip);
     for (var provider in _offlineProviders.entries) {
       for (var cidr in provider.value) {
@@ -96,35 +96,37 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
       }
     }
 
-    // مرحله دوم: استعلام آنلاین به عنوان پشتیبان
+    // 🌟 سپر ضد-گیر: پیچیدن کل پروسه آنلاین در یک تایم‌اوت مطلق
     try {
-      final request = await HttpClient().getUrl(Uri.parse('https://api.iplocation.net/?ip=$ip'));
-      final response = await request.close().timeout(const Duration(seconds: 2));
-      
-      if (response.statusCode == 200) {
-        final responseBody = await response.transform(utf8.decoder).join();
-        final data = jsonDecode(responseBody);
-        String isp = data['isp']?.toString().trim() ?? '';
+      return await Future.microtask(() async {
+        final request = await HttpClient().getUrl(Uri.parse('https://api.iplocation.net/?ip=$ip'));
+        final response = await request.close().timeout(const Duration(seconds: 2));
         
-        if (isp.isEmpty) return '❓ نامشخص';
-        
-        String ispLower = isp.toLowerCase();
-        if (ispLower.contains('cloudflare')) return '☁️ Cloudflare';
-        if (ispLower.contains('amazon') || ispLower.contains('cloudfront')) return '📦 Amazon/AWS';
-        if (ispLower.contains('fastly')) return '⚡ Fastly';
-        if (ispLower.contains('arvan')) return '☁️ ArvanCloud';
-        if (ispLower.contains('google')) return '🌐 Google';
-        if (ispLower.contains('digitalocean')) return '💧 DigitalOcean';
-        if (ispLower.contains('microsoft') || ispLower.contains('azure')) return '🪟 Azure';
-        if (ispLower.contains('hetzner')) return '🔴 Hetzner';
-        if (ispLower.contains('ovh')) return '🟣 OVH';
-        
-        return '🏢 ${isp.length > 15 ? isp.substring(0, 15) : isp}';
-      }
+        if (response.statusCode == 200) {
+          final responseBody = await response.transform(utf8.decoder).join();
+          final data = jsonDecode(responseBody);
+          String isp = data['isp']?.toString().trim() ?? '';
+          
+          if (isp.isEmpty) return '❓ نامشخص';
+          
+          String ispLower = isp.toLowerCase();
+          if (ispLower.contains('cloudflare')) return '☁️ Cloudflare';
+          if (ispLower.contains('amazon') || ispLower.contains('cloudfront')) return '📦 Amazon/AWS';
+          if (ispLower.contains('fastly')) return '⚡ Fastly';
+          if (ispLower.contains('arvan')) return '☁️ ArvanCloud';
+          if (ispLower.contains('google')) return '🌐 Google';
+          if (ispLower.contains('digitalocean')) return '💧 DigitalOcean';
+          if (ispLower.contains('microsoft') || ispLower.contains('azure')) return '🪟 Azure';
+          if (ispLower.contains('hetzner')) return '🔴 Hetzner';
+          if (ispLower.contains('ovh')) return '🟣 OVH';
+          
+          return '🏢 ${isp.length > 15 ? isp.substring(0, 15) : isp}';
+        }
+        return '❓ نامشخص';
+      }).timeout(const Duration(seconds: 3), onTimeout: () => '❓ نامشخص'); // اگر دی‌ان‌اس گیر کرد، قطع شود
     } catch (e) {
-      // در صورت فیلتر بودن یا قطعی اینترنت
+      return '❓ نامشخص';
     }
-    return '❓ نامشخص';
   }
 
   void _playSuccessAlert() {
@@ -143,10 +145,10 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
         File file = File(result.files.single.path!);
         String contents = await file.readAsString();
         setState(() { _inputController.text = contents; });
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("✅ فایل با موفقیت بارگذاری شد"), backgroundColor: Colors.green));
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("✅ فایل بارگذاری شد"), backgroundColor: Colors.green));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("❌ خطا در خواندن فایل: $e"), backgroundColor: Colors.red));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("❌ خطا: $e"), backgroundColor: Colors.red));
     }
   }
 
@@ -173,15 +175,28 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
 
   Future<MapEntry<int, bool>> checkPort(String ip, int port) async {
     try {
-      final socket = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 2000));
-      socket.destroy();
+      // 🌟 افزایش تایم‌اوت سوکت به ۳ ثانیه برای دقت بیشتر روی موبایل
+      final socket = await Socket.connect(ip, port, timeout: const Duration(milliseconds: 3000));
+      socket.destroy(); // جلوگیری از نشت حافظه (Memory Leak)
       return MapEntry(port, true);
     } catch (e) { return MapEntry(port, false); }
   }
 
   void _logMessage(String msg, Color color) {
     if (!mounted) return;
-    setState(() { _results.add(ScanLog(msg, color)); });
+    setState(() { 
+      _results.add(ScanLog(msg, color)); 
+      // برای جلوگیری از پر شدن حافظه، حداکثر ۵۰۰ لاگ آخر را نگه می‌داریم
+      if (_results.length > 500) {
+        _results.removeAt(0);
+      }
+    });
+    // اسکرول خودکار به پایین
+    Future.delayed(const Duration(milliseconds: 50), () {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(_scrollController.position.maxScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+      }
+    });
   }
 
   Future<void> processTarget(String target) async {
@@ -190,6 +205,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
       ips = [target];
     } else {
       try {
+        // تایم‌اوت مطلق برای پیدا کردن IP دامنه
         final lookup = await InternetAddress.lookup(target).timeout(const Duration(seconds: 3));
         ips = lookup.map((e) => e.address).toList();
       } catch (e) {
@@ -205,11 +221,9 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
       String resStr = results.map((e) => "${e.key}${e.value ? '✔️' : '❌'}").join(" ");
       
       if (results.any((e) => e.value)) {
-        // گرفتن نام شرکت به صورت هیبریدی (دقیق)
         String provider = await getProviderHybrid(ip);
         _logMessage("🌐 $target\n↳ $ip | $provider | $resStr", Colors.greenAccent);
         
-        // فرمت شیک برای کپی همراه با دامنه
         if (target == ip) {
           _cleanIps.add("$ip\t# $provider");
         } else {
@@ -223,13 +237,16 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
 
   Future<void> runScan(List<String> targets) async {
     _cleanIps.clear();
-    // کاهش فشار روی شبکه اندروید با تنظیم 8 آی‌پی همزمان
-    const int chunkSize = 8; 
+    const int chunkSize = 5; // فشار کمتر به مودم موبایل
     
     for (int i = 0; i < targets.length; i += chunkSize) {
       if (!mounted || !_isScanning) break; 
       final end = (i + chunkSize < targets.length) ? i + chunkSize : targets.length;
+      
       await Future.wait(targets.sublist(i, end).map((t) => processTarget(t)));
+      
+      // 🌟 تنفس طلایی: جلوگیری از فریز شدن صفحه و خفگی کارت شبکه
+      await Future.delayed(const Duration(milliseconds: 300));
     }
 
     if (!mounted) return;
@@ -259,7 +276,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
   void _copyCleanIps() {
     if (_cleanIps.isEmpty) return;
     Clipboard.setData(ClipboardData(text: _cleanIps.join('\n')));
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${_cleanIps.length} نتیجه (همراه با دامنه) کپی شد ✅"), backgroundColor: Colors.green.shade700));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${_cleanIps.length} نتیجه کپی شد ✅"), backgroundColor: Colors.green.shade700));
   }
 
   @override
@@ -271,7 +288,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text("📱 SNI Scanner Hybrid Pro", style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.blue), textAlign: TextAlign.center),
+              const Text("📱 SNI Scanner Hybrid Anti-Freeze", style: TextStyle(fontSize: 21, fontWeight: FontWeight.bold, color: Colors.blue), textAlign: TextAlign.center),
               const SizedBox(height: 15),
               
               Row(
@@ -313,7 +330,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
                 style: ElevatedButton.styleFrom(minimumSize: const Size(double.infinity, 50)),
                 child: _isScanning 
                   ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                  : const Text("🚀 شروع اسکن هوشمند (ترکیبی)", style: TextStyle(fontSize: 16)),
+                  : const Text("🚀 شروع اسکن هوشمند", style: TextStyle(fontSize: 16)),
               ),
               const SizedBox(height: 8),
               
@@ -323,7 +340,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
                     child: OutlinedButton.icon(
                       onPressed: _isScanning ? null : _copyCleanIps,
                       icon: const Icon(Icons.copy, color: Colors.greenAccent, size: 18),
-                      label: const Text("کپی کامل (با دامنه)", style: TextStyle(color: Colors.greenAccent)),
+                      label: const Text("کپی آی‌پی‌ها", style: TextStyle(color: Colors.greenAccent)),
                       style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.greenAccent)),
                     ),
                   ),
@@ -332,7 +349,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
                     child: OutlinedButton.icon(
                       onPressed: _isScanning ? null : _saveToFile,
                       icon: const Icon(Icons.save_alt, color: Colors.blueAccent, size: 18),
-                      label: const Text("ذخیره در گوشی", style: TextStyle(color: Colors.blueAccent)),
+                      label: const Text("ذخیره فایل", style: TextStyle(color: Colors.blueAccent)),
                       style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.blueAccent)),
                     ),
                   ),
@@ -345,6 +362,7 @@ class _ScannerHomePageState extends State<ScannerHomePage> {
               
               Expanded(
                 child: ListView.builder(
+                  controller: _scrollController,
                   itemCount: _results.length,
                   itemBuilder: (context, index) {
                     final log = _results[index];
