@@ -3,8 +3,7 @@ name: Build Windows Pro App
 on:
   push:
     branches: [ "main", "master" ]
-    # حذف شرط سخت‌گیرانه برای اطمینان از اجرا
-  workflow_dispatch: # قابلیت اجرای دستی هم اضافه شد
+  workflow_dispatch:
 
 jobs:
   build:
@@ -27,11 +26,11 @@ jobs:
       - name: Build Windows EXE
         shell: pwsh
         run: |
-          # اطمینان از بیلد فایل ویندوز
-          pyinstaller --noconsole --onefile --name "SNI-Scanner-Pro" windows_app.py
+          # استفاده از --clean برای حذف کش‌های قدیمی بیلد
+          pyinstaller --noconsole --onefile --clean --name "SNI-Scanner-Pro-V3" windows_app.py
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SNI-Scanner-Pro-Windows
+          name: SNI-Scanner-Pro-V3-Windows
           path: dist/*.exe
